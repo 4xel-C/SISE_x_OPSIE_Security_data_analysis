@@ -1,3 +1,3 @@
-from services.parser import Parser
+from services.data_manager import DataManager
 
-__all__ = ["Parser"]
+__all__ = ["DataManager"]

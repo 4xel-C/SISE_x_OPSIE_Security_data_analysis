@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-from services import Parser
+from services.data_manager import DataManager
 
 load_dotenv()
 
@@ -54,8 +54,7 @@ st.sidebar.caption("SecurityView v1.0")
 # =============================================================================
 # Instanciate global objects
 # =============================================================================
-st.session_state.parser = Parser(str(ROOT_DIR / "data" / FILENAME))
-
+st.session_state.data = DataManager(FILENAME)
 
 # Run the selected page
 pg.run()

@@ -1,29 +1,28 @@
+from pathlib import Path
+
 import pandas as pd
 from pandas import DataFrame
 
 
 class Parser:
-    """Singleton class to parse the raw data"""
+    """Class to parse raw data and perform feature engineering for security analysis"""
 
-    _instance = None
+    def load_raw_data(self, filepath: Path) -> DataFrame:
+        """Load a security log dataframe from a file name.
 
-    def __new__(cls, filename: str):
-        """Singleton pattern to ensure only one instance of the parser is created"""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance.__init__(filename)
-        return cls._instance
+        Args:
+            filepath (Path): Path to the csv file containing the raw security log data.
 
-    def __init__(self, filename: str):
-        if not filename.endswith(".csv"):
-            raise ValueError("The file must be a csv file")
+        Raises:
+            ValueError: _description_
 
-        self.filename = filename
-
-        self.df_raw = pd.read_csv(self.filename)
+        Returns:
+            DataFrame: _description_
+        """
+        df_raw = pd.read_csv(filepath)
 
         # set the columns
-        self.df_raw.columns = [
+        df_raw.columns = [
             "ipsrc",
             "ipdst",
             "portdst",
@@ -33,19 +32,33 @@ class Parser:
             "regle",
         ]
 
-        self.df_raw["date"] = pd.to_datetime(self.df_raw["date"])
+        df_raw["date"] = pd.to_datetime(df_raw["date"])
 
-        self._aggregate_ip()
-        self._feature_engineering()
+        return df_raw
 
-    def _aggregate_ip(self) -> DataFrame:
-        """Aggregate the raw dataframe by ipsrc and set up all the metrics properly
+    def generate_aggregated_data(self, df_raw: DataFrame) -> DataFrame:
+        """Aggregate a raw dataframe by ipsrc and compute all the metrics.
+
+        Args:
+            df_raw (DataFrame): The raw dataframe to be aggregated.
 
         Returns:
             DataFrame: The aggregated dataframe with all the metrics
         """
+        df = self._aggregate_ip(df_raw)
+        df = self._feature_engineering(df, df_raw)
 
-        groups = self.df_raw.groupby("ipsrc")
+        return df
+
+    def _aggregate_ip(self, df_raw: DataFrame) -> DataFrame:
+        """Aggregate the raw dataframe by ipsrc and set up all the metrics properly
+        Args:
+            df_raw (DataFrame): The raw dataframe to be aggregated.
+        Returns:
+            DataFrame: The aggregated dataframe with all the metrics
+        """
+
+        groups = df_raw.groupby("ipsrc")
 
         df = groups[["ipsrc", "ipdst", "portdst", "action"]].agg(
             access_nbr=("ipsrc", "count"),
@@ -71,11 +84,9 @@ class Parser:
         df = df.join(n_permit_small_ports.rename("permit_small_ports_nbr"))
         df = df.join(n_permit_admin_ports.rename("permit_admin_ports_nbr"))
 
-        self.df = df
-
         return df
 
-    def _feature_engineering(self) -> None:
+    def _feature_engineering(self, df: DataFrame, df_raw: DataFrame) -> DataFrame:
         """Augment self.df with derived features for visualization and ML.
 
         Adds:
@@ -89,49 +100,45 @@ class Parser:
         # TODO: To be checked by OPSIE
         SENSITIVE_PORTS = {22, 23, 25, 53, 445, 3306, 3389, 8080, 8443}
 
-        groups = self.df_raw.groupby("ipsrc")
+        groups = df_raw.groupby("ipsrc")
 
         # --- Ratios ---
-        self.df["deny_rate"] = self.df["deny_nbr"] / self.df["access_nbr"]
+        df["deny_rate"] = df["deny_nbr"] / df["access_nbr"]
 
         # horizontal scanning indicatores (many ipdst)
-        self.df["unique_dst_ratio"] = self.df["distinct_ipdst"] / self.df["access_nbr"]
+        df["unique_dst_ratio"] = df["distinct_ipdst"] / df["access_nbr"]
 
         # vertical scanning indicators (many portdst)
-        self.df["unique_port_ratio"] = (
-            self.df["distinct_portdst"] / self.df["access_nbr"]
-        )
+        df["unique_port_ratio"] = df["distinct_portdst"] / df["access_nbr"]
 
         # --- Temporal ---
         temporal = groups["date"].agg(first_seen="min", last_seen="max")
 
         # duration in seconds
-        self.df["activity_duration_s"] = (
+        df["activity_duration_s"] = (
             (temporal["last_seen"] - temporal["first_seen"])
             .dt.total_seconds()
             .clip(lower=1)  # to avoid division by zero if activity duration < 1s
         )
 
-        self.df["requests_per_second"] = (
-            self.df["access_nbr"] / self.df["activity_duration_s"]
-        )
+        df["requests_per_second"] = df["access_nbr"] / df["activity_duration_s"]
 
         # --- Rules ---
-        self.df["distinct_rules_hit"] = groups["regle"].nunique()
-        self.df["deny_rules_hit"] = (
-            self.df_raw[self.df_raw["action"] == "Deny"]
+        df["distinct_rules_hit"] = groups["regle"].nunique()
+        df["deny_rules_hit"] = (
+            df_raw[df_raw["action"] == "Deny"]
             .groupby("ipsrc")["regle"]
             .nunique()
-            .reindex(self.df.index, fill_value=0)  # to fill ipsrc with no deny action
+            .reindex(df.index, fill_value=0)  # to fill ipsrc with no deny action
         )
-        self.df["most_triggered_rule"] = groups["regle"].agg(
+        df["most_triggered_rule"] = groups["regle"].agg(
             lambda x: x.value_counts().idxmax()
         )
 
         # --- Sensitive ports ---
-        self.df["sensitive_ports_nbr"] = groups[["portdst"]].apply(
+        df["sensitive_ports_nbr"] = groups[["portdst"]].apply(
             lambda x: sum(x["portdst"].isin(SENSITIVE_PORTS))
         )
-        self.df["sensitive_ports_ratio"] = (
-            self.df["sensitive_ports_nbr"] / self.df["access_nbr"]
-        )
+        df["sensitive_ports_ratio"] = df["sensitive_ports_nbr"] / df["access_nbr"]
+
+        return df
