@@ -1,40 +1,9 @@
-from pathlib import Path
-
 import pandas as pd
 from pandas import DataFrame
 
 
 class Parser:
     """Class to parse raw data and perform feature engineering for security analysis"""
-
-    def load_raw_data(self, filepath: Path) -> DataFrame:
-        """Load a security log dataframe from a file name.
-
-        Args:
-            filepath (Path): Path to the csv file containing the raw security log data.
-
-        Raises:
-            ValueError: _description_
-
-        Returns:
-            DataFrame: _description_
-        """
-        df_raw = pd.read_csv(filepath)
-
-        # set the columns
-        df_raw.columns = [
-            "ipsrc",
-            "ipdst",
-            "portdst",
-            "proto",
-            "action",
-            "date",
-            "regle",
-        ]
-
-        df_raw["date"] = pd.to_datetime(df_raw["date"])
-
-        return df_raw
 
     def generate_aggregated_data(self, df_raw: DataFrame) -> DataFrame:
         """Aggregate a raw dataframe by ipsrc and compute all the metrics.
