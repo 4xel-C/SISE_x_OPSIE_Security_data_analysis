@@ -1,5 +1,9 @@
 # SISE_x_OPSIE_Security_data_analysis
 
+## TODO List:
+
+- [] Confirm with OPSIE list of critical ports (parser.py file)
+
 ## Parsing
 
 - Grouping logs by source ip

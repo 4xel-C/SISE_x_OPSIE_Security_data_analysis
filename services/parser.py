@@ -2,19 +2,19 @@ import pandas as pd
 from pandas import DataFrame
 
 
-class parser:
+class Parser:
     """Singleton class to parse the raw data"""
 
     _instance = None
 
-    def __new__(cls, filename):
+    def __new__(cls, filename: str):
         """Singleton pattern to ensure only one instance of the parser is created"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance.__init__(filename)
         return cls._instance
 
-    def __init__(self, filename):
+    def __init__(self, filename: str):
         if not filename.endswith(".csv"):
             raise ValueError("The file must be a csv file")
 
@@ -47,7 +47,7 @@ class parser:
 
         groups = self.df_raw.groupby("ipsrc")
 
-        df = groups.agg(
+        df = groups[["ipsrc", "ipdst", "portdst", "action"]].agg(
             access_nbr=("ipsrc", "count"),
             distinct_ipdst=("ipdst", "nunique"),
             distinct_portdst=("portdst", "nunique"),
@@ -56,11 +56,11 @@ class parser:
         )
 
         # get the number of permit actions with small ports (portdst < 1024)
-        n_permit_small_ports = groups.apply(
+        n_permit_small_ports = groups[["action", "portdst"]].apply(
             lambda x: sum((x["action"] == "Permit") & (x["portdst"] < 1024))
         )
 
-        n_permit_admin_ports = groups.apply(
+        n_permit_admin_ports = groups[["action", "portdst"]].apply(
             lambda x: sum(
                 (x["action"] == "Permit")
                 & (x["portdst"] < 49152)
@@ -129,7 +129,7 @@ class parser:
         )
 
         # --- Sensitive ports ---
-        self.df["sensitive_ports_nbr"] = groups.apply(
+        self.df["sensitive_ports_nbr"] = groups[["portdst"]].apply(
             lambda x: sum(x["portdst"].isin(SENSITIVE_PORTS))
         )
         self.df["sensitive_ports_ratio"] = (
