@@ -6,7 +6,12 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dotenv>=0.9.9",
+    "hdbscan>=0.8.41",
+    "numpy>=2.4.2",
     "pandas>=2.3.3",
     "plotly>=6.5.2",
+    "pydantic>=2.12.5",
+    "scikit-learn>=1.8.0",
     "streamlit>=1.54.0",
+    "umap-learn>=0.5.11",
 ]
