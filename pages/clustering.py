@@ -2,7 +2,7 @@ from typing import Literal
 
 import streamlit as st
 
-from services.charts import scatter_3d_clusters
+from services.charts import scatter_2d_clusters, scatter_3d_clusters
 from services.clustering_service import ClusteringResult, ClusteringService
 
 st.title("Clustering")
@@ -89,9 +89,14 @@ else:
     col3.metric("Anomalies détectées", n_anomalies)
 
 # =============================================================================
-# 3D CHART
+# CHART
 # =============================================================================
-st.plotly_chart(scatter_3d_clusters(result), width="stretch")
+view = st.radio("Vue", options=["3D", "2D"], horizontal=True)
+
+if view == "3D":
+    st.plotly_chart(scatter_3d_clusters(result), width="stretch")
+else:
+    st.plotly_chart(scatter_2d_clusters(result), width="stretch")
 
 # =============================================================================
 # RAW DATA EXPANDER

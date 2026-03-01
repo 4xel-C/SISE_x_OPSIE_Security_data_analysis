@@ -256,3 +256,49 @@ def scatter_3d_clusters(result: ClusteringResult) -> go.Figure:
 
     fig.update_traces(marker_size=4)
     return fig
+
+
+def scatter_2d_clusters(result: ClusteringResult) -> go.Figure:
+    """2D scatter plot of clustering or anomaly detection results (pc1 vs pc2)."""
+    df = result.df_plot
+
+    if result.mode == "cluster":
+        fig = px.scatter(
+            df,
+            x="pc1",
+            y="pc2",
+            color="cluster_str",
+            hover_name="ipsrc",
+            hover_data={
+                "access_nbr": True,
+                "deny_rate": ":.3f",
+                "requests_per_second": ":.3f",
+                "cluster_str": False,
+            },
+            title=f"Clustering 2D — {result.algorithm} ({result.reducer.upper()})",
+            labels={"pc1": "Composante 1", "pc2": "Composante 2"},
+        )
+    else:
+        fig = px.scatter(
+            df,
+            x="pc1",
+            y="pc2",
+            color="anomaly_score",
+            color_continuous_scale="RdBu_r",
+            hover_name="ipsrc",
+            hover_data={
+                "access_nbr": True,
+                "deny_rate": ":.3f",
+                "requests_per_second": ":.3f",
+                "anomaly_score": ":.4f",
+            },
+            title=f"Détection d'anomalies 2D — {result.algorithm} ({result.reducer.upper()})",
+            labels={
+                "pc1": "Composante 1",
+                "pc2": "Composante 2",
+                "anomaly_score": "Score d'anomalie",
+            },
+        )
+
+    fig.update_traces(marker={"size": 5, "opacity": 0.8})
+    return fig
