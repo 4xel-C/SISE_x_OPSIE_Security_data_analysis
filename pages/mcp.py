@@ -15,6 +15,8 @@ import streamlit as st
 from services.analysis_pipeline import (
     SUPERVISED_ALGORITHMS,
     UNSUPERVISED_ALGORITHMS,
+    generate_report_markdown,
+    markdown_to_pdf_bytes,
     suggest_supervised_algorithm,
     suggest_unsupervised_algorithm,
     tool_consolidate,
@@ -49,6 +51,7 @@ for key in (
     "mcp_s4",
     "mcp_sup_suggestion",
     "mcp_unsup_suggestion",
+    "mcp_report_md",
 ):
     if key not in st.session_state:
         st.session_state[key] = None
@@ -79,6 +82,7 @@ with col_reset:
             "mcp_s4",
             "mcp_sup_suggestion",
             "mcp_unsup_suggestion",
+            "mcp_report_md",
         ):
             st.session_state[key] = None
         st.rerun()
@@ -420,3 +424,64 @@ if st.session_state.mcp_s3 is not None:
                 st.info("Aucune IP suspecte identifiée.")
 
             _show_commentary(s4.commentary, "Conclusion SOC — Mistral")
+
+
+# =============================================================================
+# RAPPORT — Génération Markdown + export PDF
+# =============================================================================
+
+if st.session_state.mcp_s4 is not None:
+    st.divider()
+    st.header("Rapport d'analyse")
+
+    col_gen, col_regen = st.columns([3, 1])
+    with col_gen:
+        if st.session_state.mcp_report_md is None:
+            if st.button("Générer le rapport (Mistral)", type="primary", use_container_width=True):
+                with st.spinner("Génération du rapport en cours…"):
+                    st.session_state.mcp_report_md = generate_report_markdown(
+                        st.session_state.mcp_s1,
+                        st.session_state.mcp_s2,
+                        st.session_state.mcp_s3,
+                        st.session_state.mcp_s4,
+                    )
+                st.rerun()
+    with col_regen:
+        if st.session_state.mcp_report_md is not None:
+            if st.button("Regénérer", use_container_width=True):
+                st.session_state.mcp_report_md = None
+                st.rerun()
+
+    if st.session_state.mcp_report_md is not None:
+        md = st.session_state.mcp_report_md
+
+        tab_preview, tab_raw = st.tabs(["Aperçu", "Markdown brut"])
+
+        with tab_preview:
+            st.markdown(md)
+
+        with tab_raw:
+            st.code(md, language="markdown")
+
+        st.subheader("Export")
+        col_dl_md, col_dl_pdf = st.columns(2)
+
+        with col_dl_md:
+            st.download_button(
+                label="Télécharger le rapport (.md)",
+                data=md.encode("utf-8"),
+                file_name="rapport_soc_mcp.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+
+        with col_dl_pdf:
+            with st.spinner("Génération du PDF…"):
+                pdf_bytes = markdown_to_pdf_bytes(md)
+            st.download_button(
+                label="Télécharger le rapport (.pdf)",
+                data=pdf_bytes,
+                file_name="rapport_soc_mcp.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )

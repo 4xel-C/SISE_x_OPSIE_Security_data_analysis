@@ -20,4 +20,5 @@ dependencies = [
     "mistralai>=1.0.0",
     "ipykernel>=7.2.0",
     "pyarrow>=23.0.1",
+    "fpdf2>=2.8.7",
 ]

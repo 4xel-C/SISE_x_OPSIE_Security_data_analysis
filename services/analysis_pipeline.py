@@ -508,3 +508,202 @@ def tool_consolidate(step2: Step2Result, step3: Step3Result) -> Step4Result:
         overlap_n=overlap_n,
         commentary=commentary,
     )
+
+
+# =============================================================================
+# RAPPORT — Génération Markdown + export PDF
+# =============================================================================
+
+
+def generate_report_markdown(
+    step1: Step1Result,
+    step2: Step2Result,
+    step3: Step3Result,
+    step4: Step4Result,
+) -> str | None:
+    """Ask Mistral to generate a full Markdown report summarising the 4-step pipeline."""
+    top5_overlap = (
+        step4.combined_top[step4.combined_top["flaggé par les deux"]][
+            ["ipsrc", "deny_rate"]
+        ]
+        .head(5)
+        .to_dict("records")
+    )
+    top10_all = (
+        step4.combined_top[["ipsrc", "deny_rate", "source"]]
+        .head(10)
+        .to_dict("records")
+    )
+
+    prompt = (
+        "Tu es un analyste SOC senior. Génère un rapport complet au format Markdown "
+        "résumant une analyse de logs firewall en 4 étapes. "
+        "Le rapport doit être structuré, professionnel et directement exploitable par un SOC.\n\n"
+        "## Données de l'analyse\n\n"
+        f"**Étape 1 — Analyse descriptive**\n"
+        f"- IPs analysées : {step1.n_ips}\n"
+        f"- Features : {step1.n_features}\n"
+        f"- IPs avec deny_rate ≥ 80% : {step1.high_deny_count} "
+        f"({step1.high_deny_count / max(step1.n_ips, 1) * 100:.1f}%)\n"
+        f"- Synthèse : {step1.commentary}\n\n"
+        f"**Étape 2 — Modèle supervisé ({step2.algorithm})**\n"
+        f"- IPs suspectes détectées : {step2.n_suspicious}\n"
+        f"- Synthèse : {step2.commentary}\n\n"
+        f"**Étape 3 — Modèle non-supervisé ({step3.algorithm})**\n"
+        f"- Paramètres optimisés : {step3.best_params}\n"
+        f"- Outliers détectés : {step3.n_outliers} / {step3.n_outliers + step3.n_normal}\n"
+        f"- Synthèse : {step3.commentary}\n\n"
+        f"**Étape 4 — Consolidation**\n"
+        f"- IPs flaggées par les deux modèles : {step4.overlap_n}\n"
+        f"- Top IPs flaggées par les deux : {top5_overlap}\n"
+        f"- Top 10 IPs consolidées : {top10_all}\n"
+        f"- Conclusion SOC : {step4.commentary}\n\n"
+        "## Format attendu\n\n"
+        "Le rapport doit contenir exactement ces sections (titres Markdown ## et ###) :\n"
+        "1. ## Résumé exécutif\n"
+        "2. ## Analyse descriptive du trafic\n"
+        "3. ## Résultats du modèle supervisé\n"
+        "4. ## Résultats du modèle non-supervisé\n"
+        "5. ## Consolidation et IPs prioritaires — inclure un tableau Markdown des top IPs\n"
+        "6. ## Recommandations SOC — liste d'actions concrètes (blocage, investigation, escalade)\n"
+        "7. ## Conclusion\n\n"
+        "Réponds uniquement avec le contenu Markdown du rapport, sans commentaire supplémentaire. "
+        "Rédige en français."
+    )
+    return get_mistral_commentary(prompt, model="mistral-small-latest")
+
+
+def markdown_to_pdf_bytes(md_text: str) -> bytes:
+    """Convert a Markdown string to PDF bytes using fpdf2 with Unicode TTF fonts.
+
+    Uses DejaVuSans (bundled in assets/fonts/) to support the full Unicode range,
+    including characters like em-dash, guillemets, etc. that Mistral commonly produces.
+    Renders headings (##, ###), bold (**text**), bullet lists, tables, and paragraphs.
+    Returns the raw PDF bytes ready for st.download_button.
+    """
+    import re
+    from pathlib import Path
+
+    from fpdf import FPDF
+
+    _FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+    _FONT_REGULAR = str(_FONTS_DIR / "DejaVuSans.ttf")
+    _FONT_BOLD = str(_FONTS_DIR / "DejaVuSans-Bold.ttf")
+    _FONT_MONO = str(_FONTS_DIR / "DejaVuSansMono.ttf")
+
+    class _PDF(FPDF):
+        def header(self):
+            self.set_font("DejaVu", "B", 10)
+            self.set_text_color(100, 100, 100)
+            self.cell(0, 8, "Rapport d'analyse SOC \u2014 Pipeline MCP", align="C")
+            self.ln(4)
+            self.set_draw_color(180, 180, 180)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.ln(4)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("DejaVu", "", 8)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 10, f"Page {self.page_no()}", align="C")
+
+    pdf = _PDF()
+    pdf.add_font("DejaVu", "", _FONT_REGULAR)
+    pdf.add_font("DejaVu", "B", _FONT_BOLD)
+    pdf.add_font("DejaVuMono", "", _FONT_MONO)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+    pdf.set_margins(15, 20, 15)
+
+    def _write_mixed(text: str, base_size: int = 10) -> None:
+        """Write a line that may contain **bold** segments."""
+        parts = re.split(r"(\*\*[^*]+\*\*)", text)
+        for part in parts:
+            if part.startswith("**") and part.endswith("**"):
+                pdf.set_font("DejaVu", "B", base_size)
+                pdf.write(6, part[2:-2])
+            else:
+                pdf.set_font("DejaVu", "", base_size)
+                pdf.write(6, part)
+
+    for raw_line in md_text.splitlines():
+        line = raw_line.rstrip()
+        pdf.set_x(pdf.l_margin)  # reset position before each line
+
+        # H1 (#)
+        if line.startswith("# ") and not line.startswith("## "):
+            pdf.ln(4)
+            pdf.set_font("DejaVu", "B", 16)
+            pdf.set_text_color(30, 30, 30)
+            pdf.multi_cell(0, 9, line[2:])
+            pdf.ln(2)
+
+        # H2 (##)
+        elif line.startswith("## ") and not line.startswith("### "):
+            pdf.ln(5)
+            pdf.set_font("DejaVu", "B", 13)
+            pdf.set_text_color(30, 80, 160)
+            pdf.multi_cell(0, 8, line[3:])
+            pdf.set_draw_color(30, 80, 160)
+            pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+            pdf.ln(3)
+            pdf.set_text_color(30, 30, 30)
+
+        # H3 (###)
+        elif line.startswith("### "):
+            pdf.ln(3)
+            pdf.set_font("DejaVu", "B", 11)
+            pdf.set_text_color(50, 50, 50)
+            pdf.multi_cell(0, 7, line[4:])
+            pdf.ln(1)
+            pdf.set_text_color(30, 30, 30)
+
+        # Horizontal rule
+        elif line.startswith("---") or line.startswith("==="):
+            pdf.set_draw_color(180, 180, 180)
+            pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+            pdf.ln(3)
+
+        # Markdown table rows — skip separator lines (---|---)
+        elif line.startswith("|"):
+            if re.match(r"^\|[-| :]+\|$", line):
+                continue
+            pdf.set_x(pdf.l_margin)
+            pdf.set_font("DejaVuMono", "", 7)
+            pdf.set_text_color(40, 40, 40)
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            row_text = " | ".join(cells)
+            w = pdf.w - pdf.l_margin - pdf.r_margin
+            pdf.multi_cell(w, 5, row_text)
+            pdf.set_text_color(30, 30, 30)
+
+        # Bullet list
+        elif line.startswith("- ") or line.startswith("* "):
+            pdf.set_font("DejaVu", "", 10)
+            pdf.set_text_color(30, 30, 30)
+            pdf.set_x(18)
+            pdf.write(6, "\u2022  ")
+            _write_mixed(line[2:])
+            pdf.ln(6)
+
+        # Numbered list
+        elif re.match(r"^\d+\.\s", line):
+            pdf.set_x(18)
+            pdf.set_font("DejaVu", "", 10)
+            pdf.set_text_color(30, 30, 30)
+            _write_mixed(line)
+            pdf.ln(6)
+
+        # Empty line
+        elif line == "":
+            pdf.ln(3)
+
+        # Normal paragraph
+        else:
+            pdf.set_font("DejaVu", "", 10)
+            pdf.set_text_color(30, 30, 30)
+            pdf.set_x(15)
+            _write_mixed(line)
+            pdf.ln(6)
+
+    return bytes(pdf.output())
