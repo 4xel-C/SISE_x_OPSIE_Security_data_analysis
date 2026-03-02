@@ -38,8 +38,26 @@ st.set_page_config(
 PAGES_PATH = ROOT_DIR / "pages"
 
 pages = [
-    st.Page(PAGES_PATH / "visualisation.py", title="🏠 Visualisation"),
-    st.Page(PAGES_PATH / "clustering.py", title="⚙️ Clustering"),
+    st.Page(
+        PAGES_PATH / "visualisation.py", 
+        title="Visualisation",
+        icon=":material/bar_chart:"
+    ),
+    st.Page(
+        PAGES_PATH / "clustering.py", 
+        title="Clustering",
+        icon=":material/shapes:"
+    ),
+    st.Page(
+        PAGES_PATH / "prediction.py", 
+        title="Prédiction", 
+        icon=":material/neurology:"
+    ),
+    st.Page(
+        PAGES_PATH / "mcp.py", 
+        title="MCP",
+        icon=":material/chat:"
+    ),
 ]
 
 pg = st.navigation(pages)
@@ -47,8 +65,7 @@ pg = st.navigation(pages)
 # =============================================================================
 # SIDEBAR FOOTER
 # =============================================================================
-st.sidebar.markdown("---")
-st.sidebar.caption("SecurityView v1.0")
+# st.sidebar.caption("SecurityView v1.0")
 
 
 # =============================================================================

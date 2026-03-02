@@ -52,7 +52,7 @@ st.sidebar.metric("IPs à fort deny rate (≥80%)", high_deny)
 # =============================================================================
 
 # Displaying the data
-st.table(df.head())
+st.dataframe(df.head())
 
 
 st.header("Vue d'ensemble du trafic")
