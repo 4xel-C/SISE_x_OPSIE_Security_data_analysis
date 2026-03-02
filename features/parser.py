@@ -1,4 +1,7 @@
+import time
+
 import pandas as pd
+import requests
 from pandas import DataFrame
 
 
@@ -16,6 +19,7 @@ class Parser:
         """
         df = self._aggregate_ip(df_raw)
         df = self._feature_engineering(df, df_raw)
+        df = self._geolocate_ips(df)
 
         return df
 
@@ -111,5 +115,45 @@ class Parser:
             lambda x: sum(x["portdst"].isin(SENSITIVE_PORTS))
         )
         df["sensitive_ports_ratio"] = df["sensitive_ports_nbr"] / df["access_nbr"]
+
+        return df
+
+    def _geolocate_ips(self, df: DataFrame) -> DataFrame:
+        """Add city, country, lat, lon columns by querying the ip-api.com batch API.
+
+        Runs once at startup (DataManager singleton). IPs that cannot be resolved
+        (private, reserved, or API failure) will have NaN values.
+        """
+        ips = df.index.tolist()
+        geo: dict[str, dict] = {}
+
+        for i in range(0, len(ips), 100):
+            batch = ips[i : i + 100]
+            try:
+                resp = requests.post(
+                    "http://ip-api.com/batch",
+                    json=[
+                        {"query": ip, "fields": "query,status,city,country,lat,lon"}
+                        for ip in batch
+                    ],
+                    timeout=10,
+                )
+                for item in resp.json():
+                    if item.get("status") == "success":
+                        geo[item["query"]] = item
+            except Exception:
+                pass
+            # Respect free-tier rate limit: 45 requests/min
+            if i + 100 < len(ips):
+                time.sleep(1.2)
+
+        df["city"]    = df.index.map(lambda ip: geo.get(ip, {}).get("city"))
+        df["country"] = df.index.map(lambda ip: geo.get(ip, {}).get("country"))
+        df["lat"]     = pd.to_numeric(
+            df.index.map(lambda ip: geo.get(ip, {}).get("lat")), errors="coerce"
+        )
+        df["lon"]     = pd.to_numeric(
+            df.index.map(lambda ip: geo.get(ip, {}).get("lon")), errors="coerce"
+        )
 
         return df
