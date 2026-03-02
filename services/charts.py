@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.figure_factory as ff
+
 from pandas import DataFrame
+import numpy as np
 
 if TYPE_CHECKING:
     from services.clustering_service import ClusteringResult
@@ -305,6 +308,27 @@ def scatter_2d_clusters(result: ClusteringResult) -> go.Figure:
             },
         )
 
+    fig.update_traces(marker={"size": 5, "opacity": 0.8})
+    fig.update_layout(
+        autosize=True,
+        height=None,
+        margin=dict(l=0, r=0, t=40, b=0)
+    )
+    return fig
+
+def dendrogram(result: ClusteringResult):
+    df = result.df_plot
+    fake_X = np.zeros((len(df), 1))
+
+    fig = ff.create_dendrogram(
+        fake_X,
+        linkagefun=lambda _: result.linkage,
+        orientation='left',
+        labels=None
+    )
+
+    fig.update_xaxes(showticklabels=False)
+    fig.update_yaxes(showticklabels=False)
     fig.update_traces(marker={"size": 5, "opacity": 0.8})
     fig.update_layout(
         autosize=True,

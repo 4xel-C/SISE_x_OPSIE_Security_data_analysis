@@ -3,7 +3,7 @@ from typing import Literal
 import streamlit as st
 from streamlit.components.v1 import html
 
-from services.charts import scatter_2d_clusters, scatter_3d_clusters, line_cluster_inertia
+from services.charts import scatter_2d_clusters, scatter_3d_clusters, dendrogram, line_cluster_inertia
 from services.clustering_service import ClusteringResult, ClusteringService
 from services.data_manager import DataManager
 
@@ -102,7 +102,21 @@ else:
 col1, col2 = st.columns(2, border=True)
 
 with col1:
-    tab_3d, tab_2d = st.tabs(["Projection 3D", "Projection 2D"], width="stretch", default="Projection 3D")
+    tab_labels = ["Projection 3D", "Projection 2D"]
+    if algorithm_key == "agglomerative":
+        tab_labels.append("Dendrogramme")
+    tab_labels.append("Descriptions")
+
+    tabs = st.tabs(tab_labels, width="stretch", default="Projection 3D")
+
+    if algorithm_key == "agglomerative":
+        tab_3d, tab_2d, tab_dendrogram, description = tabs
+
+        with tab_dendrogram:
+            fig = dendrogram(result)
+            st.plotly_chart(fig, width="stretch", height=500)
+    else:
+        tab_3d, tab_2d, description = tabs
 
     with tab_3d:
         fig = scatter_3d_clusters(result)
@@ -110,6 +124,8 @@ with col1:
     with tab_2d:
         fig = scatter_2d_clusters(result)
         st.plotly_chart(fig, width="stretch", height=500)
+    with description:
+        st.write(result.statistics)
 
 
 # =============================================================================
@@ -131,8 +147,6 @@ with col2:
 # =============================================================================
 # CLUSTER INERTIA EXPANDER
 # =============================================================================
-
-import time
 
 if algorithm_key in ["kmeans", "agglomerative"]:
 
@@ -176,8 +190,6 @@ if algorithm_key in ["kmeans", "agglomerative"]:
                     height=0
                 )
 
-                time.sleep(.5)
-
                 # Rerun ONLY the fragment
                 st.rerun(scope="fragment")
 
@@ -191,7 +203,6 @@ if algorithm_key in ["kmeans", "agglomerative"]:
                 st.session_state.current_k = 0
                 st.session_state.running = True
                 st.rerun(scope="fragment")
-
 
         # Call the fragment
         inertia_fragment()

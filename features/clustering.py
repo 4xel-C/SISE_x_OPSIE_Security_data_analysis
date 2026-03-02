@@ -59,7 +59,7 @@ class KMeansClusterer(BaseClusterer):
 
         labels = model.fit_predict(X_scaled)
         inertia = model.inertia_
-        
+
         return labels, inertia
 
 
@@ -73,12 +73,32 @@ class AgglomerativeClusterer(BaseClusterer):
         self.n_clusters = n_clusters
         self.linkage = linkage
         self.mode = "cluster"
+        self.linkage_matrix = None
+
+    def _sklearn_to_linkage(self, model: AgglomerativeClustering) -> np.ndarray:
+        """
+        Convert a fitted AgglomerativeClustering model to a SciPy linkage matrix.
+        """
+        n_samples = len(model.labels_)
+        counts = np.zeros(model.children_.shape[0])
+
+        for i, (left, right) in enumerate(model.children_):
+            count_left = 1 if left < n_samples else counts[left - n_samples]
+            count_right = 1 if right < n_samples else counts[right - n_samples]
+            counts[i] = count_left + count_right
+
+        linkage_matrix = np.column_stack([model.children_, model.distances_, counts]).astype(float)
+        return linkage_matrix
 
     def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, float]:
-        labels = AgglomerativeClustering(
+        model = AgglomerativeClustering(
             n_clusters=self.n_clusters,
             linkage=self.linkage,  # type: ignore[arg-type]
-        ).fit_predict(X_scaled)
+            compute_distances=True
+        )
+        labels = model.fit_predict(X_scaled)
+
+        self.linkage_matrix = self._sklearn_to_linkage(model)
 
         inertia = sum(
             np.sum((members - members.mean(axis=0)) ** 2)

@@ -8,7 +8,7 @@ Supported reducers: PCA (3D), UMAP (3D).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -56,7 +56,9 @@ class ClusteringResult:
     reducer: Literal["pca", "umap"]
     algorithm: str
     n_clusters_found: int
+    statistics: DataFrame
     inertia: float
+    linkage: Optional[np.ndarray]
 
 
 # =============================================================================
@@ -102,13 +104,17 @@ class ClusteringService:
 
         n_clusters_found = int(len(set(labels)) - (1 if -1 in labels else 0))
 
+        cluster_stats = self._compute_cluster_stats(df_plot)
+
         return ClusteringResult(
             df_plot=df_plot,
             mode=mode,
             reducer=reducer,
             algorithm=algorithm,
             n_clusters_found=n_clusters_found,
-            inertia=score if mode == "cluster" else None #type: ignore
+            inertia=score if mode == "cluster" else None, #type: ignore
+            linkage=clusterer.linkage_matrix if algorithm == "Agglomerative" else None, #type: ignore
+            statistics=cluster_stats
         )
 
     def _extract_and_scale(self, df: DataFrame) -> tuple[NDArray, list]:
@@ -154,6 +160,27 @@ class ClusteringService:
         )
 
         return plot_df
+    
+    def _compute_cluster_stats(self, df_plot: DataFrame) -> DataFrame:
+        """
+        Create statistics on each clusters variables (count, median, min, max)
+
+        Args:
+            df_plot (DataFrame): Dataframe create with `_build_plot_df()`
+
+        Returns:
+            DataFrame: Statistics
+        """
+        stats = (
+            df_plot.groupby('cluster_label')
+                .agg({
+                    'ipsrc': 'count',
+                    'access_nbr': ['mean', 'median', 'max', 'min'],
+                    'deny_rate': ['mean', 'median', 'max', 'min'],
+                    'requests_per_second': ['mean', 'median', 'max', 'min']
+                })
+        )
+        return stats
 
     def get_available_algorithms(self) -> list[str]:
         """Return the list of available clustering algorithm names."""
