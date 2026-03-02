@@ -255,6 +255,11 @@ def scatter_3d_clusters(result: ClusteringResult) -> go.Figure:
         )
 
     fig.update_traces(marker_size=4)
+    fig.update_layout(
+        autosize=True,
+        height=None,
+        margin=dict(l=0, r=0, t=40, b=0)
+    )
     return fig
 
 
@@ -301,4 +306,25 @@ def scatter_2d_clusters(result: ClusteringResult) -> go.Figure:
         )
 
     fig.update_traces(marker={"size": 5, "opacity": 0.8})
+    fig.update_layout(
+        autosize=True,
+        height=None,
+        margin=dict(l=0, r=0, t=40, b=0)
+    )
+    return fig
+
+def line_cluster_inertia(inertia: list, total_inertia: int|None = None) -> go.Figure:
+    fig = px.line(y=inertia, title="Inertie par nombre de cluster")
+    fig.update_traces(marker={"size": 5, "opacity": 0.8})
+    fig.update_layout(
+        autosize=True,
+        height=None,
+        margin=dict(l=0, r=0, t=40, b=0)
+    )
+
+    if total_inertia:
+        fig.update_layout(
+            xaxis=dict(range=[1, 10], dtick=1)
+        )
+
     return fig

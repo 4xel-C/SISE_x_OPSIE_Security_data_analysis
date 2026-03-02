@@ -1,14 +1,18 @@
 from typing import Literal
 
 import streamlit as st
+from streamlit.components.v1 import html
 
-from services.charts import scatter_2d_clusters, scatter_3d_clusters
+from services.charts import scatter_2d_clusters, scatter_3d_clusters, line_cluster_inertia
 from services.clustering_service import ClusteringResult, ClusteringService
+from services.data_manager import DataManager
+
 
 st.title("Clustering")
 
-df = st.session_state.data.df
-service = ClusteringService()
+clustering_service = ClusteringService()
+data_manager: DataManager = st.session_state.data
+df = data_manager.df
 
 # =============================================================================
 # SIDEBAR — ALGORITHM & PARAMS
@@ -22,11 +26,15 @@ ALGORITHM_LABELS: dict[str, str] = {
     "isolation_forest": "Isolation Forest",
 }
 
-available = service.get_available_algorithms()
+def handle_model_change():
+    st.session_state.inertia_hist = None
+
+available = clustering_service.get_available_algorithms()
 algorithm_key = st.sidebar.selectbox(
     "Algorithme",
     options=available,
     format_func=lambda key: ALGORITHM_LABELS.get(key, key),
+    on_change=handle_model_change
 )
 
 kwargs: dict = {}
@@ -67,8 +75,8 @@ reducer: Literal["pca", "umap"] = st.sidebar.radio(  # type: ignore[assignment]
 
 
 def run_clustering(df, algorithm_key, kwargs, reducer) -> ClusteringResult:
-    clusterer = service.select_algorithm(algorithm_key, **kwargs)
-    return service.run(df, clusterer, reducer)
+    clusterer = clustering_service.select_algorithm(algorithm_key, **kwargs)
+    return clustering_service.run(df, clusterer, reducer)
 
 
 with st.spinner("Calcul en cours…"):
@@ -77,7 +85,7 @@ with st.spinner("Calcul en cours…"):
 # =============================================================================
 # METRICS ROW
 # =============================================================================
-col1, col2, col3 = st.columns(3)
+col1, col2, col3 = st.columns(3, border=True)
 
 col1.metric("IPs analysées", len(result.df_plot))
 col2.metric("Algorithme", result.algorithm)
@@ -91,15 +99,99 @@ else:
 # =============================================================================
 # CHART
 # =============================================================================
-view = st.radio("Vue", options=["3D", "2D"], horizontal=True)
+col1, col2 = st.columns(2, border=True)
 
-if view == "3D":
-    st.plotly_chart(scatter_3d_clusters(result), width="stretch")
-else:
-    st.plotly_chart(scatter_2d_clusters(result), width="stretch")
+with col1:
+    tab_3d, tab_2d = st.tabs(["Projection 3D", "Projection 2D"], width="stretch", default="Projection 3D")
+
+    with tab_3d:
+        fig = scatter_3d_clusters(result)
+        st.plotly_chart(fig, width="stretch", height=500)
+    with tab_2d:
+        fig = scatter_2d_clusters(result)
+        st.plotly_chart(fig, width="stretch", height=500)
+
 
 # =============================================================================
-# RAW DATA EXPANDER
+# RAW DATA INPUT
 # =============================================================================
-with st.expander("Données brutes"):
-    st.dataframe(result.df_plot, width="stretch")
+with col2:
+    ipsrc = st.text_input(
+        "Donnée brute", 
+        placeholder="Rechercher un ipsrc", 
+        icon=":material/search:", 
+        autocomplete="off",
+        label_visibility="collapsed"
+    )
+
+    result = data_manager.search_ipsrc(ipsrc)
+    st.dataframe(result, width="stretch", height=500)
+
+
+# =============================================================================
+# CLUSTER INERTIA EXPANDER
+# =============================================================================
+
+import time
+
+if algorithm_key in ["kmeans", "agglomerative"]:
+
+    # Initialize session state
+    if "inertia_hist" not in st.session_state:
+        st.session_state.inertia_hist = []
+
+    if "current_k" not in st.session_state:
+        st.session_state.current_k = 0
+
+    if "running" not in st.session_state:
+        st.session_state.running = False
+
+    with st.expander("Inertie des clusters", expanded=True):
+
+        @st.fragment
+        def inertia_fragment():
+            # Draw current graph
+            if st.session_state.inertia_hist:
+                graph = line_cluster_inertia(st.session_state.inertia_hist, total_inertia=10)
+                st.plotly_chart(graph, height=400)
+
+            # Continue loop if running
+            if st.session_state.running and st.session_state.current_k <= 10:
+                analysing_kwarg = kwargs.copy()
+                analysing_kwarg["n_clusters"] = st.session_state.current_k + 1
+
+                result = run_clustering(df, algorithm_key, analysing_kwarg, reducer)
+
+                st.session_state.inertia_hist.append(result.inertia)
+                st.session_state.current_k += 1
+
+                # Scroll to bottom if first itteration
+                html(
+                    """
+                    <script>
+                    const section = window.parent.document.querySelector('section.stMain');
+                    section.scrollTo({ top: section.scrollHeight, behavior: 'smooth' });
+                    </script>
+                    """,
+                    height=0
+                )
+
+                time.sleep(.5)
+
+                # Rerun ONLY the fragment
+                st.rerun(scope="fragment")
+
+            # Stop condition
+            if st.session_state.current_k >= 10:
+                st.session_state.running = False
+
+            # Start button
+            if st.button("Lancer l'analyse", type="primary", width="stretch"):
+                st.session_state.inertia_hist = []
+                st.session_state.current_k = 0
+                st.session_state.running = True
+                st.rerun(scope="fragment")
+
+
+        # Call the fragment
+        inertia_fragment()

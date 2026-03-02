@@ -18,7 +18,7 @@ class BaseClusterer(ABC):
     ]  # "cluster" for clustering algos, "anomaly" for anomaly detection algos
 
     @abstractmethod
-    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, NDArray | None]:
+    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, NDArray | float]:
         """Return (labels, anomaly_scores | None)."""
 
 
@@ -50,11 +50,17 @@ class KMeansClusterer(BaseClusterer):
         self.n_clusters = n_clusters
         self.mode = "cluster"
 
-    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, None]:
-        labels = cast(NDArray, KMeans(
-            n_clusters=self.n_clusters, random_state=42, n_init="auto"
-        ).fit_predict(X_scaled))
-        return labels, None
+    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, float]:
+        model = KMeans(
+            n_clusters=self.n_clusters, 
+            random_state=42, 
+            n_init="auto"
+        )
+
+        labels = model.fit_predict(X_scaled)
+        inertia = model.inertia_
+        
+        return labels, inertia
 
 
 @register_clusterer("agglomerative")
@@ -68,12 +74,17 @@ class AgglomerativeClusterer(BaseClusterer):
         self.linkage = linkage
         self.mode = "cluster"
 
-    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, None]:
-        labels = cast(NDArray, AgglomerativeClustering(
+    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, float]:
+        labels = AgglomerativeClustering(
             n_clusters=self.n_clusters,
             linkage=self.linkage,  # type: ignore[arg-type]
-        ).fit_predict(X_scaled))
-        return labels, None
+        ).fit_predict(X_scaled)
+
+        inertia = sum(
+            np.sum((members - members.mean(axis=0)) ** 2)
+            for members in (X_scaled[labels == k] for k in np.unique(labels))
+        )
+        return labels, inertia
 
 
 @register_clusterer("hdbscan")
@@ -83,12 +94,19 @@ class HDBSCANClusterer(BaseClusterer):
         self.min_samples = min_samples
         self.mode = "cluster"
 
-    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, None]:
-        model = hdbscan.HDBSCAN(
-            min_cluster_size=self.min_cluster_size, min_samples=self.min_samples
+    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, float]:
+        labels = hdbscan.HDBSCAN(
+            min_cluster_size=self.min_cluster_size,
+            min_samples=self.min_samples
+        ).fit_predict(X_scaled)
+
+        cluster_ids = [k for k in np.unique(labels) if k != -1]
+        inertia = sum(
+            np.sum((members - members.mean(axis=0)) ** 2)
+            for members in (X_scaled[labels == k] for k in cluster_ids)
         )
-        labels = cast(NDArray, model.fit_predict(X_scaled))
-        return labels, None
+
+        return labels, inertia
 
 
 @register_clusterer("isolation_forest")

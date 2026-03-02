@@ -56,6 +56,7 @@ class ClusteringResult:
     reducer: Literal["pca", "umap"]
     algorithm: str
     n_clusters_found: int
+    inertia: float
 
 
 # =============================================================================
@@ -85,7 +86,7 @@ class ClusteringService:
     ) -> ClusteringResult:
         X_scaled, ipsrc_index = self._extract_and_scale(df)
         X_reduced = self._reduce(X_scaled, reducer)
-        labels, anomaly_scores = clusterer.fit_predict(X_scaled)
+        labels, score = clusterer.fit_predict(X_scaled)
 
         mode: Literal["cluster", "anomaly"] = clusterer.mode
 
@@ -95,7 +96,7 @@ class ClusteringService:
             ipsrc_index=ipsrc_index,
             X_reduced=X_reduced,
             labels=labels,
-            anomaly_scores=anomaly_scores,
+            anomaly_scores=score if mode == "anomaly" else None, #type: ignore
             df=df,
         )
 
@@ -107,6 +108,7 @@ class ClusteringService:
             reducer=reducer,
             algorithm=algorithm,
             n_clusters_found=n_clusters_found,
+            inertia=score if mode == "cluster" else None #type: ignore
         )
 
     def _extract_and_scale(self, df: DataFrame) -> tuple[NDArray, list]:

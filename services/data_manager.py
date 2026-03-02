@@ -36,6 +36,21 @@ class DataManager:
     def time_range(self) -> tuple[Timestamp, Timestamp]:
         """Returns the (min, max) timestamps available in the raw data."""
         return self.df_raw["date"].min(), self.df_raw["date"].max()
+    
+    def search_ipsrc(self, ipsrc:str|None=None) -> DataFrame:
+        """
+        Search data by ipsrc, return all data if no ipsrc
+
+        Args:
+            ipsrc (str, optional): ipsrc to search. Defaults to None.
+
+        Returns:
+            DataFrame: Filtered dataframe
+        """
+        if not ipsrc:
+            return self.df_raw
+        
+        return self.df_raw[self.df_raw['ipsrc'] == ipsrc]
 
     def get_filtered_df(self, start: Timestamp, end: Timestamp) -> DataFrame:
         """Return an aggregated DataFrame restricted to the [start, end] time window.
