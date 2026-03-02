@@ -207,10 +207,7 @@ if st.session_state.mcp_s1 is not None:
             )
 
             if st.button("Lancer le modèle supervisé", type="primary"):
-                with st.status(
-                    "Entraînement du modèle supervisé…", expanded=True
-                ) as status:
-                    st.write("GridSearchCV en cours…")
+                with st.status("Prédiction en cours...", expanded=True) as status:
                     s2 = tool_run_supervised_model(df, sel_algo)
                     st.session_state.mcp_s2 = s2
                     status.update(
@@ -265,7 +262,7 @@ if st.session_state.mcp_s2 is not None:
         if st.session_state.mcp_s3 is None:
             st.info(
                 "Le modèle non-supervisé optimise automatiquement ses hyperparamètres "
-                "puis segmente ou détecte des anomalies dans le trafic sans label."
+                "puis segmente ou détecte des anomalies dans le trafic."
             )
 
             # --- Suggestion LLM (chargée une seule fois) ---
@@ -315,23 +312,66 @@ if st.session_state.mcp_s2 is not None:
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Algorithme", s3.algorithm)
-            c2.metric(f"Score ({s3.score_name})", f"{s3.best_score:.4f}")
-            c3.metric("IPs suspectes", s3.n_suspicious)
+            c2.metric("Outliers détectés", s3.n_outliers)
+            c3.metric("IPs normales", s3.n_normal)
 
-            st.caption(f"Meilleurs paramètres : `{s3.best_params}`")
+            st.caption(f"Paramètres : `{s3.best_params}`")
 
-            _optim_chart(s3.optimization_curve, s3.score_name)
+            # Courbes d'optimisation
+            if s3.algorithm == "lof" and s3.n_neighbors_curve:
+                # Pass 1 : n_neighbors → ratio séparation outliers/normaux
+                nn_df = pd.DataFrame(
+                    {"n_neighbors": p.param_value, "ratio": p.score}
+                    for p in s3.n_neighbors_curve
+                )
+                best_nn = s3.best_params.get("n_neighbors")
+                fig_nn = px.line(
+                    nn_df,
+                    x="n_neighbors",
+                    y="ratio",
+                    markers=True,
+                    title="Pass 1 — Séparation outliers/normaux selon n_neighbors",
+                    labels={
+                        "n_neighbors": "n_neighbors",
+                        "ratio": "Ratio top5% / médiane",
+                    },
+                )
+                if best_nn is not None:
+                    fig_nn.add_vline(
+                        x=best_nn,
+                        line_dash="dash",
+                        line_color="red",
+                        annotation_text=f"Choix : {best_nn}",
+                    )
+                st.plotly_chart(fig_nn, use_container_width=True)
+
+            # Distribution outliers / normaux
+            dist_df = pd.DataFrame(
+                {
+                    "Classe": ["Normal", "Outlier"],
+                    "Nombre d'IPs": [s3.n_normal, s3.n_outliers],
+                }
+            )
+            fig_dist = px.pie(
+                dist_df,
+                names="Classe",
+                values="Nombre d'IPs",
+                color="Classe",
+                color_discrete_map={"Normal": "#4C9BE8", "Outlier": "#E8684C"},
+                title="Répartition Normal / Outlier",
+            )
+            st.plotly_chart(fig_dist, use_container_width=True)
 
             st.subheader("Visualisation 3D")
             st.plotly_chart(
                 scatter_3d_clusters(s3.clustering_result), use_container_width=True
             )
 
-            st.subheader("Top IPs suspectes")
-            if not s3.top_suspicious.empty:
-                st.dataframe(s3.top_suspicious, use_container_width=True)
+            st.subheader("IPs détectées comme outliers")
+            if not s3.detected_ips.empty:
+                st.dataframe(s3.detected_ips, use_container_width=True)
             else:
-                st.info("Aucune IP suspecte identifiée.")
+                st.info("Aucun outlier détecté.")
 
             _show_commentary(s3.commentary, "Interprétation non-supervisée — Mistral")
 

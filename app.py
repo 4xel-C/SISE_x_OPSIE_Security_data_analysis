@@ -39,25 +39,15 @@ PAGES_PATH = ROOT_DIR / "pages"
 
 pages = [
     st.Page(
-        PAGES_PATH / "visualisation.py", 
+        PAGES_PATH / "visualisation.py",
         title="Visualisation",
-        icon=":material/bar_chart:"
+        icon=":material/bar_chart:",
     ),
+    st.Page(PAGES_PATH / "clustering.py", title="Clustering", icon=":material/shapes:"),
     st.Page(
-        PAGES_PATH / "clustering.py", 
-        title="Clustering",
-        icon=":material/shapes:"
+        PAGES_PATH / "prediction.py", title="Prédiction", icon=":material/neurology:"
     ),
-    st.Page(
-        PAGES_PATH / "prediction.py", 
-        title="Prédiction", 
-        icon=":material/neurology:"
-    ),
-    st.Page(
-        PAGES_PATH / "mcp.py", 
-        title="MCP",
-        icon=":material/chat:"
-    ),
+    st.Page(PAGES_PATH / "mcp.py", title="MCP", icon=":material/chat:"),
 ]
 
 pg = st.navigation(pages)

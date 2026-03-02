@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.ensemble import IsolationForest
+from sklearn.neighbors import LocalOutlierFactor
 
 # =============================================================================
 # ABSTRACT BASE + CONCRETE CLUSTERERS
@@ -142,5 +143,32 @@ class IsolationForestClusterer(BaseClusterer):
         # We invert so that higher score = more anomalous
         anomaly_scores = -model.decision_function(X_scaled)
         raw_labels = model.predict(X_scaled)  # 1 = normal, -1 = anomaly
+        labels = np.where(raw_labels == -1, -1, 0)
+        return labels, anomaly_scores
+
+
+@register_clusterer("lof")
+class LOFClusterer(BaseClusterer):
+    """Local Outlier Factor — density-based outlier detection.
+
+    LOF compares the local density of each point to its neighbours.
+    Points in low-density areas relative to their neighbours get a high
+    LOF score (> 1) and are flagged as outliers.
+    anomaly_score = LOF score (higher = more anomalous).
+    """
+
+    def __init__(self, n_neighbors: int = 20, contamination: float = 0.05):
+        self.n_neighbors = n_neighbors
+        self.contamination = contamination
+        self.mode = "anomaly"
+
+    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, NDArray]:
+        model = LocalOutlierFactor(
+            n_neighbors=self.n_neighbors,
+            contamination=self.contamination,
+        )
+        raw_labels = model.fit_predict(X_scaled)   # 1 = normal, -1 = outlier
+        # negative_outlier_factor_ is ≤ 0; invert and shift so outliers > 0
+        anomaly_scores = -model.negative_outlier_factor_
         labels = np.where(raw_labels == -1, -1, 0)
         return labels, anomaly_scores
