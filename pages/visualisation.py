@@ -10,6 +10,7 @@ from streamlit_folium import st_folium
 from services.charts import (
     access_distribution,
     allow_deny_pie,
+    deny_permit_timeline,
     deny_rate_distribution,
     deny_rules_distribution,
     deny_vs_permit_bubble,
@@ -636,6 +637,12 @@ def _render_geo_heatmap():
 
 
 _render_geo_heatmap()
+
+# =============================================================================
+# DENY / PERMIT TIMELINE
+# =============================================================================
+st.header("Évolution temporelle des flux Deny / Permit")
+st.plotly_chart(deny_permit_timeline(df_raw), use_container_width=True)
 
 # =============================================================================
 # IP INDICATORS TABLE
