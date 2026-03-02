@@ -125,6 +125,7 @@ with col1:
         fig = scatter_2d_clusters(result)
         st.plotly_chart(fig, width="stretch", height=500)
     with description:
+        #TODO: call llm here
         st.write(result.statistics)
 
 
