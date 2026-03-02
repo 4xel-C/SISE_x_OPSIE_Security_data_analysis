@@ -37,6 +37,7 @@ class Parser:
             deny_nbr=("action", lambda x: sum(x == "Deny")),
         )
 
+        # TODO: Delete the  small port numbers and/admin ports to use the ports given by OPSIE team.
         # get the number of permit actions with small ports (portdst < 1024)
         n_permit_small_ports = groups[["action", "portdst"]].apply(
             lambda x: sum((x["action"] == "Permit") & (x["portdst"] < 1024))
@@ -105,6 +106,7 @@ class Parser:
         )
 
         # --- Sensitive ports ---
+        # TODO: Add sensitive ports "common" and sensitive ports "admin"
         df["sensitive_ports_nbr"] = groups[["portdst"]].apply(
             lambda x: sum(x["portdst"].isin(SENSITIVE_PORTS))
         )
