@@ -245,6 +245,67 @@ def traffic_timeline_with_ip(df_raw: DataFrame, selected_ip: str) -> go.Figure:
     return fig
 
 
+def deny_permit_timeline(df_raw: DataFrame) -> go.Figure:
+    """Line chart: Deny (red) vs Permit (green) flows per minute over time,
+    with a rolling sum of Deny (orange dashed) to highlight attack peaks.
+    """
+    bucketed = df_raw.copy()
+    bucketed["minute"] = bucketed["date"].dt.floor("min")
+
+    grouped = (
+        bucketed.groupby(["minute", "action"])
+        .size()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
+    grouped.columns.name = None
+
+    for col in ["Permit", "Deny"]:
+        if col not in grouped.columns:
+            grouped[col] = 0
+    grouped = grouped.sort_values("minute").reset_index(drop=True)
+
+    grouped["total"] = grouped["Permit"] + grouped["Deny"]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=grouped["minute"],
+        y=grouped["Permit"],
+        name="Permit",
+        mode="lines",
+        line=dict(color="#34d399", width=2),
+        hovertemplate="<b>%{x|%H:%M}</b><br>Permit : %{y:,}<extra></extra>",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=grouped["minute"],
+        y=grouped["Deny"],
+        name="Deny",
+        mode="lines",
+        line=dict(color="#f87171", width=2),
+        hovertemplate="<b>%{x|%H:%M}</b><br>Deny : %{y:,}<extra></extra>",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=grouped["minute"],
+        y=grouped["total"],
+        name="Total (Permit + Deny)",
+        mode="lines",
+        line=dict(color="#f59e0b", width=1.5, dash="dash"),
+        hovertemplate="<b>%{x|%H:%M}</b><br>Total : %{y:,}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        title="Évolution temporelle des flux Deny / Permit",
+        xaxis=dict(title="Temps"),
+        yaxis=dict(title="Flux / minute"),
+        hovermode="x unified",
+        margin=dict(t=60, b=40, l=60, r=20),
+    )
+    return fig
+
+
 def ip_rank_scatter(ip_agg: DataFrame, selected_ip: str) -> go.Figure:
     """Ranked scatter: X = IP rank (1→N sorted by total_flux desc), Y = total_flux.
 
