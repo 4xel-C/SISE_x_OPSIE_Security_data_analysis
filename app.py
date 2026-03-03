@@ -49,11 +49,6 @@ pages = [
         icon=":material/shapes:"
     ),
     st.Page(
-        PAGES_PATH / "prediction.py", 
-        title="Prédiction", 
-        icon=":material/neurology:"
-    ),
-    st.Page(
         PAGES_PATH / "mcp.py", 
         title="MCP",
         icon=":material/chat:"
