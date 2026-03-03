@@ -35,7 +35,7 @@ from services.charts import (
 # PAGE SETUP
 # =============================================================================
 
-st.title("MCP — Pipeline d'analyse automatisée")
+st.title("Pipeline — Analyse automatisée")
 st.caption(
     "Pipeline en 4 étapes : analyse descriptive → modèle supervisé → modèle non-supervisé → consolidation."
 )

@@ -49,8 +49,8 @@ pages = [
         icon=":material/shapes:"
     ),
     st.Page(
-        PAGES_PATH / "mcp.py", 
-        title="MCP",
+        PAGES_PATH / "pipeline.py", 
+        title="Pipeline",
         icon=":material/chat:"
     ),
 ]

@@ -103,7 +103,7 @@ else:
 col1, col2 = st.columns(2, border=True)
 
 with col1:
-    tab_labels = ["Projection 3D", "Projection 2D"]
+    tab_labels = ["Projection 2D", "Projection 3D"]
     if algorithm_key == "agglomerative":
         tab_labels.append("Dendrogramme")
     tab_labels.append("Correlations")
@@ -112,25 +112,13 @@ with col1:
     tabs = st.tabs(tab_labels, width="stretch", default="Projection 3D")
 
     if algorithm_key == "agglomerative":
-        tab_3d, tab_2d, tab_dendrogram, tab_corr, description = tabs
+        tab_2d, tab_3d, tab_dendrogram, tab_corr, description = tabs
 
         with tab_dendrogram:
             fig = dendrogram(result)
             st.plotly_chart(fig, width="stretch", height=500)
     else:
-        tab_3d, tab_2d, tab_corr, description = tabs
-
-    with tab_3d:
-        @st.fragment
-        def projection_comments_3d():
-            projections = None
-            if "projection_comments" in st.session_state:
-                projections = [comp["name"] for comp in st.session_state.projection_comments.values()]
-
-            fig = scatter_3d_clusters(result, axes=projections)
-            st.plotly_chart(fig, width="stretch", height=500)
-
-        projection_comments_3d()
+        tab_2d, tab_3d, tab_corr, description = tabs
 
     with tab_2d:
         @st.fragment
@@ -143,6 +131,18 @@ with col1:
             st.plotly_chart(fig, width="stretch", height=500)
 
         projection_comments_2d()
+
+    with tab_3d:
+        @st.fragment
+        def projection_comments_3d():
+            projections = None
+            if "projection_comments" in st.session_state:
+                projections = [comp["name"] for comp in st.session_state.projection_comments.values()]
+
+            fig = scatter_3d_clusters(result, axes=projections)
+            st.plotly_chart(fig, width="stretch", height=500)
+
+        projection_comments_3d()
 
     with tab_corr:
         fig = corr_circle(result)
@@ -247,7 +247,7 @@ if algorithm_key in ["kmeans", "agglomerative"]:
 
 
 if "cluster_comments" not in st.session_state:
-    response = llm_handler.comment_cluster(result.cluster_statistics)
+    response = llm_handler.comment_cluster(result.cluster_statistics, result.corr_plot)
     st.session_state.cluster_comments = response
     st.rerun()
 

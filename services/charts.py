@@ -956,7 +956,9 @@ def line_cluster_inertia(inertia: list, total_inertia: int|None = None) -> go.Fi
     fig.update_layout(
         autosize=True,
         height=None,
-        margin=dict(l=0, r=0, t=40, b=0)
+        margin=dict(l=0, r=0, t=40, b=0),
+        xaxis_title="Nombre de clusters",
+        yaxis_title="Inertie"
     )
 
     if total_inertia:

@@ -40,6 +40,7 @@ class LLMHandler:
     def comment_cluster(
             self, 
             cluster_statistics: pd.DataFrame, 
+            corr_plot: pd.DataFrame,
             model: str = "mistral-small-latest"
         ) -> dict:
         """
@@ -48,7 +49,10 @@ class LLMHandler:
         Returns:
             str: Mistral response
         """
-        prompt = f"Voici les statistics descriptives des clusters: \n\n{cluster_statistics.to_csv(index=False)}"
+        prompt = f"""
+        Voici les statistics descriptives des clusters:
+        {cluster_statistics.to_csv(index=False)}
+        """
         system_prompt = """
         Tu travail sur des données de cyber sécurité d'un firewall d'entreprise. Tu trouves un nom et écrit une courte description en francais sur des clusters de requêtes en suivant ce format:
         {
@@ -72,7 +76,7 @@ class LLMHandler:
     
     def comment_projection(
             self,
-            projections_statistics: pd.DataFrame,
+            corr_plot: pd.DataFrame,
             model: str = "mistral-small-latest"
         ) -> dict:
         """
@@ -87,8 +91,8 @@ class LLMHandler:
 
         Voici les variables avec l'impact le plus négatif / positif sur chacun des axes (ainsi que leur coeficient):
         """
-        for comp in projections_statistics.columns:                # e.g. PC1, PC2, PC3
-            sorted_comp = projections_statistics[comp].sort_values()
+        for comp in corr_plot.columns:                # e.g. PC1, PC2, PC3
+            sorted_comp = corr_plot[comp].sort_values()
             negatif = [f"{var} ({coef})" for var, coef in sorted_comp.head(3).items()]
             positif = [f"{var} ({coef})" for var, coef in sorted_comp.tail(3).items()]
             prompt += f"""

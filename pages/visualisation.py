@@ -338,7 +338,7 @@ else:
     with scatter_col:
         scatter_sel = st.plotly_chart(
             ip_rank_scatter(ip_agg, selected_ip),
-            use_container_width=True,
+            width="stretch",
             on_select="rerun",
             key="ip_scatter_rank",
         )
