@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.ensemble import IsolationForest
+from sklearn.neighbors import LocalOutlierFactor
 
 # =============================================================================
 # ABSTRACT BASE + CONCRETE CLUSTERERS
@@ -51,11 +52,7 @@ class KMeansClusterer(BaseClusterer):
         self.mode = "cluster"
 
     def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, float]:
-        model = KMeans(
-            n_clusters=self.n_clusters, 
-            random_state=42, 
-            n_init="auto"
-        )
+        model = KMeans(n_clusters=self.n_clusters, random_state=42, n_init="auto")
 
         labels = model.fit_predict(X_scaled)
         inertia = model.inertia_
@@ -87,14 +84,16 @@ class AgglomerativeClusterer(BaseClusterer):
             count_right = 1 if right < n_samples else counts[right - n_samples]
             counts[i] = count_left + count_right
 
-        linkage_matrix = np.column_stack([model.children_, model.distances_, counts]).astype(float)
+        linkage_matrix = np.column_stack(
+            [model.children_, model.distances_, counts]
+        ).astype(float)
         return linkage_matrix
 
     def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, float]:
         model = AgglomerativeClustering(
             n_clusters=self.n_clusters,
             linkage=self.linkage,  # type: ignore[arg-type]
-            compute_distances=True
+            compute_distances=True,
         )
         labels = model.fit_predict(X_scaled)
 
@@ -116,8 +115,7 @@ class HDBSCANClusterer(BaseClusterer):
 
     def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, float]:
         labels = hdbscan.HDBSCAN(
-            min_cluster_size=self.min_cluster_size,
-            min_samples=self.min_samples
+            min_cluster_size=self.min_cluster_size, min_samples=self.min_samples
         ).fit_predict(X_scaled)
 
         cluster_ids = [k for k in np.unique(labels) if k != -1]
@@ -142,5 +140,32 @@ class IsolationForestClusterer(BaseClusterer):
         # We invert so that higher score = more anomalous
         anomaly_scores = -model.decision_function(X_scaled)
         raw_labels = model.predict(X_scaled)  # 1 = normal, -1 = anomaly
+        labels = np.where(raw_labels == -1, -1, 0)
+        return labels, anomaly_scores
+
+
+@register_clusterer("lof")
+class LOFClusterer(BaseClusterer):
+    """Local Outlier Factor — density-based outlier detection.
+
+    LOF compares the local density of each point to its neighbours.
+    Points in low-density areas relative to their neighbours get a high
+    LOF score (> 1) and are flagged as outliers.
+    anomaly_score = LOF score (higher = more anomalous).
+    """
+
+    def __init__(self, n_neighbors: int = 20, contamination: float = 0.05):
+        self.n_neighbors = n_neighbors
+        self.contamination = contamination
+        self.mode = "anomaly"
+
+    def fit_predict(self, X_scaled: NDArray) -> tuple[NDArray, NDArray]:
+        model = LocalOutlierFactor(
+            n_neighbors=self.n_neighbors,
+            contamination=self.contamination,
+        )
+        raw_labels = model.fit_predict(X_scaled)  # 1 = normal, -1 = outlier
+        # negative_outlier_factor_ is ≤ 0; invert and shift so outliers > 0
+        anomaly_scores = -model.negative_outlier_factor_
         labels = np.where(raw_labels == -1, -1, 0)
         return labels, anomaly_scores

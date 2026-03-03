@@ -62,6 +62,7 @@ class ClusteringResult:
     inertia: float
     linkage: Optional[np.ndarray]
 
+
 @dataclass
 class ReduceResult:
     X_reduce: NDArray
@@ -84,7 +85,7 @@ def reduce_pca(X_scaled: NDArray) -> tuple[NDArray, NDArray]:
 
 def reduce_umap(X_scaled: NDArray) -> tuple[NDArray, NDArray]:
     reducer_model = UMAP(n_components=3, random_state=42)
-    X_reduce: np.ndarray = reducer_model.fit_transform(X_scaled) #type: ignore
+    X_reduce: np.ndarray = reducer_model.fit_transform(X_scaled)  # type: ignore
     return X_reduce, None
 
 
@@ -112,7 +113,7 @@ class ClusteringService:
             ipsrc_index=ipsrc_index,
             X_reduced=X_reduce,
             labels=labels,
-            anomaly_scores=score if mode == "anomaly" else None, #type: ignore
+            anomaly_scores=score if mode == "anomaly" else None,  # type: ignore
             df=df,
         )
 
@@ -131,8 +132,8 @@ class ClusteringService:
             reducer=reducer,
             algorithm=algorithm,
             n_clusters_found=n_clusters_found,
-            inertia=score if mode == "cluster" else None, #type: ignore
-            linkage=clusterer.linkage_matrix if algorithm == "Agglomerative" else None, #type: ignore
+            inertia=score if mode == "cluster" else None,  # type: ignore
+            linkage=clusterer.linkage_matrix if algorithm == "Agglomerative" else None,  # type: ignore
             cluster_statistics=cluster_stats,
         )
 
@@ -143,7 +144,9 @@ class ClusteringService:
         X_scaled = StandardScaler().fit_transform(X)
         return X_scaled, ipsrc_index
 
-    def _reduce(self, X_scaled: NDArray, reducer: Literal["pca", "umap"]) -> tuple[NDArray, NDArray]:
+    def _reduce(
+        self, X_scaled: NDArray, reducer: Literal["pca", "umap"]
+    ) -> tuple[NDArray, NDArray]:
         if reducer == "umap":
             return reduce_umap(X_scaled)
         return reduce_pca(X_scaled)
@@ -179,17 +182,13 @@ class ClusteringService:
         )
 
         return plot_df
-    
+
     def _build_corr_plot_df(self, loadings_corr: NDArray) -> DataFrame:
-        loadings_corr_df = (
-        DataFrame(
-                loadings_corr,
-                columns=["PC1", "PC2", "PC3"]
-            )
-            .assign(variable=CLUSTERING_FEATURES)
-        )
+        loadings_corr_df = DataFrame(
+            loadings_corr, columns=["PC1", "PC2", "PC3"]
+        ).assign(variable=CLUSTERING_FEATURES)
         return loadings_corr_df
-    
+
     def _compute_cluster_stats(self, df_plot: DataFrame) -> DataFrame:
         """
         Create statistics on each clusters variables (count, median, min, max)
@@ -200,14 +199,13 @@ class ClusteringService:
         Returns:
             DataFrame: Statistics
         """
-        stats = (
-            df_plot.groupby('cluster_str')
-                .agg({
-                    'ipsrc': 'count',
-                    'access_nbr': ['mean', 'median', 'max', 'min'],
-                    'deny_rate': ['mean', 'median', 'max', 'min'],
-                    'requests_per_second': ['mean', 'median', 'max', 'min']
-                })
+        stats = df_plot.groupby("cluster_str").agg(
+            {
+                "ipsrc": "count",
+                "access_nbr": ["mean", "median", "max", "min"],
+                "deny_rate": ["mean", "median", "max", "min"],
+                "requests_per_second": ["mean", "median", "max", "min"],
+            }
         )
         return stats
 
