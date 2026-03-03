@@ -92,7 +92,7 @@ st.header("Analyse descriptive")
 # --- Inline filters ---
 df_raw = get_df_raw(Timestamp(start_date), Timestamp(end_date))
 
-fcol1, fcol2 = st.columns([1, 2])
+fcol1, fcol2, fcol3 = st.columns([1, 2, 1])
 with fcol1:
     proto_filter = st.radio(
         "Protocole",
@@ -104,6 +104,12 @@ with fcol2:
         "Plage de ports destination",
         options=["Tous", "Clients (49152–65535)", "Autres (0–49151)"],
     )
+with fcol3:
+    action_filter = st.radio(
+        "Action",
+        options=["Tous", "Permit", "Deny"],
+        horizontal=True,
+    )
 
 if proto_filter != "Tous":
     df_raw = df_raw[df_raw["proto"] == proto_filter]
@@ -112,6 +118,9 @@ if port_range_filter == "Clients (49152–65535)":
     df_raw = df_raw[df_raw["portdst"] >= 49152]
 elif port_range_filter == "Autres (0–49151)":
     df_raw = df_raw[df_raw["portdst"] < 49152]
+
+if action_filter != "Tous":
+    df_raw = df_raw[df_raw["action"] == action_filter]
 
 total_raw = len(df_raw)
 permit_raw = int((df_raw["action"] == "Permit").sum())
@@ -295,70 +304,73 @@ ip_agg = (
     .reset_index(drop=True)
 )
 
-ip_list = ip_agg["ipsrc"].tolist()
-
-# Resolve current IP from session state
-current_ip = st.session_state.get("selected_ip")
-if current_ip not in ip_list:
-    current_ip = ip_list[0]
-
-# If a chart click was stored from the previous run, apply it now (before slider renders)
-# by deleting the slider key so value= takes effect instead of cached state.
-if "pending_ip_click" in st.session_state:
-    desired_rank = st.session_state.pop("pending_ip_click")
-    st.session_state.pop("ip_rank_slider", None)
+if ip_agg.empty:
+    st.warning("Aucune IP source trouvée pour la fenêtre temporelle et les filtres sélectionnés.")
 else:
-    desired_rank = ip_list.index(current_ip) + 1
+    ip_list = ip_agg["ipsrc"].tolist()
 
-ip_rank = st.slider(
-    "Se balader dans les IPs",
-    min_value=1,
-    max_value=len(ip_agg),
-    value=desired_rank,
-    key="ip_rank_slider",
-)
+    # Resolve current IP from session state
+    current_ip = st.session_state.get("selected_ip")
+    if current_ip not in ip_list:
+        current_ip = ip_list[0]
 
-selected_ip = ip_agg["ipsrc"].iloc[ip_rank - 1]
-st.session_state["selected_ip"] = selected_ip
+    # If a chart click was stored from the previous run, apply it now (before slider renders)
+    # by deleting the slider key so value= takes effect instead of cached state.
+    if "pending_ip_click" in st.session_state:
+        desired_rank = st.session_state.pop("pending_ip_click")
+        st.session_state.pop("ip_rank_slider", None)
+    else:
+        desired_rank = ip_list.index(current_ip) + 1
 
-detail_col, scatter_col = st.columns([1, 2])
-
-with scatter_col:
-    scatter_sel = st.plotly_chart(
-        ip_rank_scatter(ip_agg, selected_ip),
-        use_container_width=True,
-        on_select="rerun",
-        key="ip_scatter_rank",
+    ip_rank = st.slider(
+        "Se balader dans les IPs",
+        min_value=1,
+        max_value=len(ip_agg),
+        value=desired_rank,
+        key="ip_rank_slider",
     )
 
-# Chart click → store pending rank, rerun (slider key reset happens at top of next run)
-sel_points = getattr(getattr(scatter_sel, "selection", None), "points", []) or []
-if sel_points:
-    cd = sel_points[0].get("customdata", [])
-    if cd and cd[0] in ip_list:
-        clicked_ip = cd[0]
-        if clicked_ip != selected_ip:
-            st.session_state["selected_ip"] = clicked_ip
-            st.session_state["pending_ip_click"] = ip_list.index(clicked_ip) + 1
-            st.rerun()
+    selected_ip = ip_agg["ipsrc"].iloc[ip_rank - 1]
+    st.session_state["selected_ip"] = selected_ip
 
-# --- Detail panel (left column, beside scatter) ---
-ip_row = ip_agg[ip_agg["ipsrc"] == selected_ip].iloc[0]
-dst_agg = (
-    df_raw[df_raw["ipsrc"] == selected_ip]
-    .groupby("ipdst")
-    .agg(
-        permit=("action", lambda x: (x == "Permit").sum()),
-        deny=("action", lambda x: (x == "Deny").sum()),
+    detail_col, scatter_col = st.columns([1, 2])
+
+    with scatter_col:
+        scatter_sel = st.plotly_chart(
+            ip_rank_scatter(ip_agg, selected_ip),
+            use_container_width=True,
+            on_select="rerun",
+            key="ip_scatter_rank",
+        )
+
+    # Chart click → store pending rank, rerun (slider key reset happens at top of next run)
+    sel_points = getattr(getattr(scatter_sel, "selection", None), "points", []) or []
+    if sel_points:
+        cd = sel_points[0].get("customdata", [])
+        if cd and cd[0] in ip_list:
+            clicked_ip = cd[0]
+            if clicked_ip != selected_ip:
+                st.session_state["selected_ip"] = clicked_ip
+                st.session_state["pending_ip_click"] = ip_list.index(clicked_ip) + 1
+                st.rerun()
+
+    # --- Detail panel (left column, beside scatter) ---
+    ip_row = ip_agg[ip_agg["ipsrc"] == selected_ip].iloc[0]
+    dst_agg = (
+        df_raw[df_raw["ipsrc"] == selected_ip]
+        .groupby("ipdst")
+        .agg(
+            permit=("action", lambda x: (x == "Permit").sum()),
+            deny=("action", lambda x: (x == "Deny").sum()),
+        )
+        .reset_index()
+        .sort_values("deny", ascending=False)
     )
-    .reset_index()
-    .sort_values("deny", ascending=False)
-)
-dst_rows = ""
-for _, drow in dst_agg.iterrows():
-    ac = "#059669" if drow["permit"] > 0 else "#94a3b8"
-    dc = "#dc2626" if drow["deny"] > 0 else "#94a3b8"
-    dst_rows += f"""
+    dst_rows = ""
+    for _, drow in dst_agg.iterrows():
+        ac = "#059669" if drow["permit"] > 0 else "#94a3b8"
+        dc = "#dc2626" if drow["deny"] > 0 else "#94a3b8"
+        dst_rows += f"""
     <div style="display:flex;justify-content:space-between;align-items:center;
                 padding:7px 4px;border-bottom:1px solid #f1f5f9;">
         <span style="font-size:13px;color:#334155;">{drow['ipdst']}</span>
@@ -368,9 +380,9 @@ for _, drow in dst_agg.iterrows():
         </div>
     </div>"""
 
-no_data = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">Aucune donnée</div>'
-with detail_col:
-    components.html(f"""
+    no_data = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">Aucune donnée</div>'
+    with detail_col:
+        components.html(f"""
     <html><head>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
     </head><body style="margin:0;padding:0;background:transparent;font-family:'JetBrains Mono',monospace;">
@@ -583,7 +595,12 @@ st.header("Carte de géolocalisation des IP sources")
 
 @st.fragment
 def _render_geo_heatmap():
-    geo_df = data.df.reset_index().dropna(subset=["lat", "lon"])
+    # Compute flux per IP from the currently filtered df_raw (respects all active filters)
+    ip_flux = df_raw.groupby("ipsrc").size().reset_index(name="access_nbr_filtered")
+
+    # Get geo info from the aggregated df (has lat/lon) and keep only IPs in filtered data
+    geo_full = df.reset_index().dropna(subset=["lat", "lon"])
+    geo_df = geo_full.merge(ip_flux, on="ipsrc", how="inner")
 
     if geo_df.empty:
         st.info("Aucune donnée de géolocalisation disponible (toutes les IPs sont internes ou non résolues).")
@@ -592,7 +609,7 @@ def _render_geo_heatmap():
     city_heat = (
         geo_df.dropna(subset=["city"])
         .groupby(["city", "country", "lat", "lon"])
-        .agg(flux=("access_nbr", "sum"), ips=("ipsrc", "count"))
+        .agg(flux=("access_nbr_filtered", "sum"), ips=("ipsrc", "count"))
         .reset_index()
     )
 
