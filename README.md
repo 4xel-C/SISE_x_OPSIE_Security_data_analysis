@@ -1,76 +1,216 @@
-# SISE_x_OPSIE_Security_data_analysis
+# SecurityView — Analyse de logs réseau pour la cybersécurité
 
-## TODO List:
+> Projet académique SISE × OPSIE 2026 — Détection d'intrusion et monitoring réseau par analyse de données firewall
 
-- [] Confirm with OPSIE list of critical ports (parser.py file)
+---
 
-## Parsing
+## Contexte et objectif
 
-- Grouping logs by source ip
-- Feature engineering:
-    - access number
-    - distinc ipdist
-    - permit nbr
-    - deny nbr
-    - permit small ports
-    - permit admin ports
+Les équipes de sécurité (SOC) sont confrontées à des volumes massifs de logs réseau qu'il est impossible d'analyser manuellement. **SecurityView** est une application d'analyse de données de cybersécurité conçue pour automatiser la détection d'IPs suspectes, identifier des patterns d'attaque et assister les analystes SOC dans leur travail de monitoring et de réponse aux incidents.
 
-- advanced feature engineering:
-    - deny rate
-    - unique_dst_ratio: unique dst numbers / nbr access => Horizontal scanning
-    - unique_port_ratio: unique_port / nbr access => Vertical scanning
-    - activty duration in second
-    - request per second
-    - distinct_rules_hit
-    - deny_rules_hit
-    - most trigered rule
-    - sensitive ports nbr
-    - sensitive ports ratio
+L'application ingère des logs de firewall bruts, les enrichit par feature engineering, puis les soumet à plusieurs couches d'analyse :
 
+- **Visualisation** des comportements réseau et indicateurs de compromission
+- **Clustering** pour identifier des groupes d'IPs au comportement homogène (scanners, bots, attaquants ciblés…)
+- **Modèles supervisés et non-supervisés** pour la détection automatique d'anomalies
+- **Analyse LLM** (Mistral AI) pour interpréter les résultats et générer des conclusions exploitables par un SOC
 
-Check LLM:
+---
 
-  Tier 1 — Indispensables
+## Pipeline d'analyse
 
-  ┌─────────────────────┬──────────────────────────────────────────────┐
-  │       Feature       │                   Pourquoi                   │
-  ├─────────────────────┼──────────────────────────────────────────────┤
-  │ deny_rate           │ Signal le plus direct d'une IP bloquée       │
-  ├─────────────────────┼──────────────────────────────────────────────┤
-  │ unique_dst_ratio    │ Détecte le scan horizontal                   │
-  ├─────────────────────┼──────────────────────────────────────────────┤
-  │ unique_port_ratio   │ Détecte le scan vertical                     │
-  ├─────────────────────┼──────────────────────────────────────────────┤
-  │ requests_per_second │ Détecte les bursts/comportements automatisés │
-  └─────────────────────┴──────────────────────────────────────────────┘
+### 1. Parsing et feature engineering
 
-  Ces 4 résument à elles seules la majorité des patterns d'attaque connus.
+Les logs bruts (CSV, provenant d'un firewall) sont agrégés par IP source. Chaque IP est caractérisée par **16 features** calculées automatiquement :
 
-  Tier 2 — Bon complément
+| Feature | Description |
+|---|---|
+| `deny_rate` | Ratio de requêtes bloquées — signal principal d'une IP hostile |
+| `unique_dst_ratio` | Ratio d'IPs destinations uniques — détecte le **scan horizontal** |
+| `unique_port_ratio` | Ratio de ports uniques — détecte le **scan vertical** |
+| `requests_per_second` | Vélocité du trafic — détecte les comportements automatisés/burst |
+| `deny_rules_hit` | Nombre de règles de blocage distinctes touchées |
+| `sensitive_ports_ratio` | Ratio d'accès vers ports critiques (SSH, RDP, SMB, MySQL…) |
+| `activity_duration_s` | Durée d'activité en secondes |
+| `access_nbr` | Nombre total de requêtes |
+| `distinct_ipdst` | Nombre d'IPs de destination uniques |
+| `distinct_portdst` | Nombre de ports de destination uniques |
+| `permit_nbr` / `deny_nbr` | Nombre d'actions autorisées / bloquées |
+| `most_triggered_rule` | Règle firewall la plus déclenchée |
+| `sensitive_ports_nbr` | Nombre d'accès vers ports sensibles |
 
-  ┌───────────────────────┬────────────────────────────────────────────────────────────────┐
-  │        Feature        │                            Pourquoi                            │
-  ├───────────────────────┼────────────────────────────────────────────────────────────────┤
-  │ deny_rules_hit        │ Diversité des règles en Deny — plus robuste que deny_nbr seul  │
-  ├───────────────────────┼────────────────────────────────────────────────────────────────┤
-  │ sensitive_ports_ratio │ Cible des services critiques                                   │
-  ├───────────────────────┼────────────────────────────────────────────────────────────────┤
-  │ activity_duration_s   │ Distingue une attaque courte/intense d'un trafic long/régulier │
-  └───────────────────────┴────────────────────────────────────────────────────────────────┘
+Les IPs sont également **géolocalisées** (ville, pays, coordonnées) via l'API ip-api.com pour la cartographie.
 
-  Tier 3 — Redondantes pour le ML
+### 2. Visualisation
 
-  ┌─────────────────────────────────────────────────┬───────────────────────────────────────────────────────┐
-  │                     Feature                     │                  Pourquoi redondante                  │
-  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ access_nbr                                      │ Capturé par requests_per_second + activity_duration_s │
-  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ permit_nbr / deny_nbr                           │ Capturés par deny_rate                                │
-  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ distinct_ipdst / distinct_portdst               │ Capturés par les ratios                               │
-  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ sensitive_ports_nbr                             │ Capturé par sensitive_ports_ratio                     │
-  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ permit_small_ports_nbr / permit_admin_ports_nbr │ Peu discriminants seuls                               │
-  ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ distinct_rules_hit                              │ Corrélé à deny_rules_hit  
+Page d'exploration du trafic réseau avec une vingtaine de graphiques interactifs :
+- Top IPs sources par volume et taux de blocage
+- Distribution des ports et protocoles
+- Timeline deny/permit pour identifier les pics d'attaque
+- Détection de scans horizontaux vs verticaux
+- Heatmap géographique des sources d'attaque
+- Classement des règles firewall les plus déclenchées
+
+### 3. Clustering non-supervisé
+
+Exploration des groupes comportementaux avec 4 algorithmes au choix :
+
+| Algorithme | Usage |
+|---|---|
+| **KMeans** | Segmentation en k groupes homogènes |
+| **CAH** (Clustering Agglomératif Hiérarchique) | Dendrogramme, pas besoin de fixer k |
+| **HDBSCAN** | Détection de clusters de densité variable + outliers |
+| **Isolation Forest** | Détection d'anomalies par isolation |
+
+La projection dimensionnelle (PCA ou UMAP) permet de visualiser les clusters en 2D/3D. Un commentaire LLM interprète automatiquement les groupes détectés.
+
+### 4. Pipeline MCP — Analyse IA en 4 étapes
+
+Pipeline séquentiel assisté par **Mistral AI** pour une analyse complète orientée SOC :
+
+```
+Étape 1 — Analyse descriptive
+  └─ Statistiques globales, top IPs, corrélations, commentaire narratif
+
+Étape 2 — Modèle supervisé
+  └─ Random Forest ou Régression Logistique (modèles pré-entraînés)
+  └─ Classification Normal / Suspect pour chaque IP
+
+Étape 3 — Modèle non-supervisé
+  └─ Isolation Forest ou LOF avec optimisation automatique des hyperparamètres
+  └─ Détection d'outliers avec scoring d'anomalie
+
+Étape 4 — Consolidation SOC
+  └─ Union des IPs suspectes des deux modèles
+  └─ Priorisation des IPs flaggées par les deux approches
+  └─ Conclusion SOC + recommandations (blocage, investigation, escalade)
+  └─ Export PDF du rapport complet
+```
+
+---
+
+## Stack technique
+
+| Catégorie | Technologies |
+|---|---|
+| Interface | Streamlit |
+| Data | Pandas, NumPy, PyArrow |
+| Machine Learning | Scikit-learn, HDBSCAN, UMAP-learn |
+| Visualisation | Plotly, Folium, Seaborn, Matplotlib |
+| LLM | Mistral AI (`mistral-small-latest`) |
+| Base de données | SQLAlchemy, PyMySQL (Aiven MySQL / MariaDB SkySQL) |
+| Export | fpdf2 (PDF avec polices Unicode DejaVu) |
+| Packaging | uv, pyproject.toml |
+| Déploiement | Docker |
+
+---
+
+## Installation
+
+### Avec Docker (recommandé)
+
+**1. Cloner le projet**
+```bash
+git clone <url-du-repo>
+cd SISE_x_OPSIE_Security_data_analysis
+```
+
+**2. Configurer les variables d'environnement**
+```bash
+cp .env.example .env
+# Remplir les valeurs dans .env
+```
+
+**3. Build de l'image**
+```bash
+docker build -t securityview .
+```
+
+**4. Lancer le container**
+```bash
+docker run -p 8501:8501 securityview
+```
+
+L'application est accessible sur [http://localhost:8501](http://localhost:8501).
+
+---
+
+### Sans Docker (développement local)
+
+```bash
+# Installer les dépendances
+uv sync
+
+# Lancer l'application
+uv run streamlit run app.py
+```
+
+> **Prérequis** : Python 3.13+ et [uv](https://github.com/astral-sh/uv) installé.
+
+---
+
+## Configuration
+
+Copier `.env.example` en `.env` et renseigner les valeurs :
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Description |
+|---|---|
+| `AIVEN_HOST` / `AIVEN_PORT` | Connexion au service MySQL Aiven |
+| `AIVEN_USER` / `AIVEN_PASSWORD` / `AIVEN_DB` | Credentials Aiven |
+| `AIVEN_SSL_CA` | Chemin vers le certificat CA Aiven |
+| `MARIADB_*` | Connexion MariaDB SkySQL (alternative) |
+| `DATAFILE` | Nom du fichier CSV de logs à analyser |
+| `MISTRAL_API_KEY` | Clé API Mistral AI |
+
+---
+
+## Structure du projet
+
+```
+.
+├── app.py                      # Point d'entrée Streamlit + navigation
+├── pages/
+│   ├── visualisation.py        # Graphiques et heatmap géographique
+│   ├── clustering.py           # Clustering interactif (KMeans, CAH, HDBSCAN, IF)
+│   ├── prediction.py           # Modèles supervisés
+│   └── mcp.py                  # Pipeline d'analyse SOC en 4 étapes
+├── features/
+│   ├── parser.py               # Agrégation par IP + feature engineering
+│   └── clustering.py           # Algorithmes de clustering
+├── services/
+│   ├── data_manager.py         # Chargement des données (singleton)
+│   ├── charts.py               # Génération de tous les graphiques
+│   ├── clustering_service.py   # Orchestration du clustering
+│   ├── analysis_pipeline.py    # Pipeline MCP (4 étapes + export PDF)
+│   └── mistral_client.py       # Client Mistral AI
+├── models/                     # Modèles pré-entraînés (pickle)
+│   ├── rf_classifier.pkl
+│   └── logistic_regression.pkl
+├── data/                       # Fichiers de logs CSV
+├── assets/
+│   └── fonts/                  # Polices DejaVu pour l'export PDF
+├── Dockerfile
+├── pyproject.toml
+└── .env.example
+```
+
+---
+
+## Données attendues
+
+L'application attend un fichier CSV de logs firewall avec au minimum les colonnes suivantes :
+
+| Colonne | Description |
+|---|---|
+| `ipsrc` | IP source |
+| `ipdst` | IP destination |
+| `portdst` | Port de destination |
+| `action` | Action firewall (`Permit` / `Deny`) |
+| `regle` | Règle firewall déclenchée |
+| `date` | Timestamp de l'événement |
+
+Le nom du fichier est configuré via la variable `DATAFILE` dans `.env`.
