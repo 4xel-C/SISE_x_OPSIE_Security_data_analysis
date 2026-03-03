@@ -24,7 +24,7 @@ from services.clustering_service import (
     ClusteringResult,
     ClusteringService,
 )
-from services.mistral_client import get_mistral_commentary
+from services.mistral_client import llm_handler
 
 # =============================================================================
 # CONSTANTS
@@ -165,7 +165,7 @@ def tool_descriptive_analysis(df: DataFrame) -> Step1Result:
         f"Fournis un commentaire narratif de 3 à 5 phrases sur le profil du trafic et les patterns d'attaque détectés. "
         f"Réponds directement en français, sans titre ni bullet points."
     )
-    commentary = get_mistral_commentary(prompt)
+    commentary = llm_handler.get_commentary(prompt)
 
     return Step1Result(
         n_ips=n_ips,
@@ -204,7 +204,7 @@ def suggest_supervised_algorithm(step1: Step1Result) -> str | None:
         f"Termine ta réponse par : 'Algorithme recommandé : <nom>'.\n"
         f"Réponds directement en français, sans titre."
     )
-    return get_mistral_commentary(prompt)
+    return llm_handler.get_commentary(prompt)
 
 
 def suggest_unsupervised_algorithm(step1: Step1Result) -> str | None:
@@ -226,7 +226,7 @@ def suggest_unsupervised_algorithm(step1: Step1Result) -> str | None:
         f"Termine ta réponse par : 'Algorithme recommandé : <nom>'.\n"
         f"Réponds directement en français, sans titre."
     )
-    return get_mistral_commentary(prompt)
+    return llm_handler.get_commentary(prompt)
 
 
 # Model file mapping
@@ -293,7 +293,7 @@ def tool_run_supervised_model(df: DataFrame, algorithm: str) -> Step2Result:
         f"Explique en 3 à 4 phrases ce que ces résultats signifient d'un point de vue sécurité. "
         f"Réponds directement en français, sans titre ni bullet points."
     )
-    commentary = get_mistral_commentary(prompt)
+    commentary = llm_handler.get_commentary(prompt)
 
     return Step2Result(
         algorithm=algorithm,
@@ -433,7 +433,7 @@ def tool_run_unsupervised_model(
         f"Explique en 3 à 4 phrases ce que ces résultats signifient d'un point de vue sécurité réseau. "
         f"Réponds directement en français, sans titre ni bullet points."
     )
-    commentary = get_mistral_commentary(prompt)
+    commentary = llm_handler.get_commentary(prompt)
 
     return Step3Result(
         algorithm=algorithm,
@@ -513,7 +513,7 @@ def tool_consolidate(step2: Step2Result, step3: Step3Result) -> Step4Result:
         f"(blocage, investigation, escalade). Priorise les IPs détectées par les deux modèles. "
         f"Réponds directement en français, sans titre ni bullet points."
     )
-    commentary = get_mistral_commentary(prompt)
+    commentary = llm_handler.get_commentary(prompt)
 
     return Step4Result(
         combined_top=combined,

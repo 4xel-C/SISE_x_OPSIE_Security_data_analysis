@@ -5,31 +5,117 @@ Mistral LLM client — thin wrapper for generating narrative commentary.
 from __future__ import annotations
 
 import os
+import pandas as pd
+import json
+
+from mistralai import Mistral, UserMessage, SystemMessage
 
 
-def get_mistral_commentary(
-    prompt: str, model: str = "mistral-small-latest"
-) -> str | None:
-    """Call Mistral API and return a narrative commentary string.
 
-    Uses a lazy import so the app degrades gracefully if mistralai is not installed.
-    Returns None on any error (missing key, network failure, rate-limit, etc.).
-    """
-    try:
-        from mistralai import Mistral  # lazy import
-    except ImportError:
-        return None
+class LLMHandler:
 
-    api_key = os.getenv("MISTRAL_API_KEY")
-    if not api_key:
-        return None
+    def __init__(self) -> None:
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            raise ValueError("Missing MISTRAL_API_KEY in env")
+        
+        self.client = Mistral(api_key=api_key)
 
-    try:
-        client = Mistral(api_key=api_key)
-        response = client.chat.complete(
+    def query(
+            self,
+            prompt: str, 
+            model: str = "mistral-small-latest"
+        ) -> str:
+        """Call Mistral API and return a narrative commentary string.
+
+        Uses a lazy import so the app degrades gracefully if mistralai is not installed.
+        Returns None on any error (missing key, network failure, rate-limit, etc.).
+        """
+        response = self.client.chat.complete(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[UserMessage(content=prompt)],
         )
-        return response.choices[0].message.content  # type: ignore
-    except Exception:
-        return None
+        return str(response.choices[0].message.content)
+    
+    def comment_cluster(
+            self, 
+            cluster_statistics: pd.DataFrame, 
+            model: str = "mistral-small-latest"
+        ) -> dict:
+        """
+        Call mistral to comment clusters based on their statistics
+
+        Returns:
+            str: Mistral response
+        """
+        prompt = f"Voici les statistics descriptives des clusters: \n\n{cluster_statistics.to_csv(index=False)}"
+        system_prompt = """
+        Tu travail sur des données de cyber sécurité d'un firewall d'entreprise. Tu trouves un nom et écrit une courte description en francais sur des clusters de requêtes en suivant ce format:
+        {
+            "cluster_id": {
+                "name": ""
+                "description"
+            }
+        }
+        """
+
+        response = self.client.chat.complete(
+            model=model,
+            response_format = {'type': 'json_object'},
+            messages=[
+                SystemMessage(content=system_prompt),
+                UserMessage(content=prompt)
+                ],
+        )
+        resp = str(response.choices[0].message.content)
+        return json.loads(resp)
+    
+    def comment_projection(
+            self,
+            projections_statistics: pd.DataFrame,
+            model: str = "mistral-small-latest"
+        ) -> dict:
+        """
+        Call mistral to comment projection axis based on their loadings
+
+        Returns:
+            str: Mistral response
+        """
+        prompt = """
+        Nous avons projeté les données dans un espace en 3 dimension grace aux 3 premieres composantes latente d'une ACP.
+        Tu dois trouver un nom a chacun des axes pour mieux comprendre le sens de chacun des axes.
+
+        Voici les variables avec l'impact le plus négatif / positif sur chacun des axes (ainsi que leur coeficient):
+        """
+        for axe in projections_statistics["comp"]:
+            projections_statistics.sort_values("coef")
+            positif = [f"{projections_statistics["variable"][i]} ({projections_statistics["coef"][i]})" for i in range(3)]
+            negatif = [f"{projections_statistics["variable"][-i]} ({projections_statistics["coef"][-i]})" for i in range(3)]
+            prompt += f"""
+            {axe}:
+            - positif: {", ".join(positif)}
+            - negatif {", ".join(negatif)}
+            """
+
+        system_prompt = """
+        Tu travail sur des données de cyber sécurité d'un firewall d'entreprise. Tu commentes les analyse de cette donnée:
+        {
+            "PC#": {
+                "name": un nom court pour l'axe,
+                "description": description de l'axe,
+            }
+        }
+        """
+
+        response = self.client.chat.complete(
+            model=model,
+            response_format = {'type': 'json_object'},
+            messages=[
+                SystemMessage(content=system_prompt),
+                UserMessage(content=prompt)
+                ],
+        )
+        resp = str(response.choices[0].message.content)
+        return json.loads(resp)
+
+llm_handler = LLMHandler()

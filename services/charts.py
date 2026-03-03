@@ -641,13 +641,81 @@ def deny_rules_distribution(df: DataFrame) -> go.Figure:
 # =============================================================================
 
 
+def corr_circle(result: ClusteringResult) -> go.Figure:
+    # DataFrame des corrélations variables-composantes
+    df = result.corr_plot
+
+    theta = np.linspace(0, 2 * np.pi, 200)
+
+    fig = go.Figure()
+
+    # Cercle unité
+    fig.add_trace(
+        go.Scatter(
+            x=np.cos(theta),
+            y=np.sin(theta),
+            mode="lines",
+            line=dict(color="royalblue", dash="dash"),
+            name="Cercle unité"
+        )
+    )
+
+    # Axes
+    fig.add_shape(type="line", x0=-1.1, x1=1.1, y0=0, y1=0,
+                  line=dict(color="gray", width=1))
+    fig.add_shape(type="line", x0=0, x1=0, y0=-1.1, y1=1.1,
+                  line=dict(color="gray", width=1))
+
+    # Vecteurs des variables
+    fig.add_trace(
+        go.Scatter(
+            x=[0] * len(df),
+            y=[0] * len(df),
+            mode="markers",
+            marker=dict(size=1),
+            showlegend=False
+        )
+    )
+
+    for _, row in df.iterrows():
+        fig.add_annotation(
+            x=row["PC1"],
+            y=row["PC2"],
+            ax=0,
+            ay=0,
+            text=row["variable"],
+            showarrow=True,
+            arrowhead=3,
+            arrowsize=1,
+            arrowwidth=1.5,
+            arrowcolor="crimson"
+        )
+
+    fig.update_layout(
+        title="Cercle de corrélation (PC1 vs PC2)",
+        xaxis=dict(range=[-1.1, 1.1], zeroline=False),
+        yaxis=dict(range=[-1.1, 1.1], zeroline=False,
+                   scaleanchor="x", scaleratio=1),
+        width=700,
+        height=700,
+        showlegend=False
+    )
+    fig.update_layout(
+        autosize=True,
+        height=None,
+        margin=dict(l=0, r=0, t=40, b=0)
+    )
+
+    return fig
+
+
 def scatter_3d_clusters(result: ClusteringResult) -> go.Figure:
     """3D scatter plot of clustering or anomaly detection results.
 
     - mode=="cluster": discrete color per cluster label (label -1 shown as "Bruit")
     - mode=="anomaly": continuous color scale (RdBu) by anomaly score
     """
-    df = result.df_plot
+    df = result.projection_plot
 
     # Clustering coloration
     if result.mode == "cluster":
@@ -708,7 +776,7 @@ def scatter_3d_clusters(result: ClusteringResult) -> go.Figure:
 
 def scatter_2d_clusters(result: ClusteringResult) -> go.Figure:
     """2D scatter plot of clustering or anomaly detection results (pc1 vs pc2)."""
-    df = result.df_plot
+    df = result.projection_plot
 
     if result.mode == "cluster":
         fig = px.scatter(
@@ -757,7 +825,7 @@ def scatter_2d_clusters(result: ClusteringResult) -> go.Figure:
     return fig
 
 def dendrogram(result: ClusteringResult):
-    df = result.df_plot
+    df = result.projection_plot
     fake_X = np.zeros((len(df), 1))
 
     fig = ff.create_dendrogram(

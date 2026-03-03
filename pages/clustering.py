@@ -3,9 +3,10 @@ from typing import Literal
 import streamlit as st
 from streamlit.components.v1 import html
 
-from services.charts import scatter_2d_clusters, scatter_3d_clusters, dendrogram, line_cluster_inertia
+from services.charts import scatter_2d_clusters, scatter_3d_clusters, corr_circle, dendrogram, line_cluster_inertia
 from services.clustering_service import ClusteringResult, ClusteringService
 from services.data_manager import DataManager
+from services.mistral_client import llm_handler
 
 
 st.title("Clustering")
@@ -87,13 +88,13 @@ with st.spinner("Calcul en cours…"):
 # =============================================================================
 col1, col2, col3 = st.columns(3, border=True)
 
-col1.metric("IPs analysées", len(result.df_plot))
+col1.metric("IPs analysées", len(result.projection_plot))
 col2.metric("Algorithme", result.algorithm)
 
 if result.mode == "cluster":
     col3.metric("Clusters trouvés", result.n_clusters_found)
 else:
-    n_anomalies = int((result.df_plot["cluster_label"] == -1).sum())
+    n_anomalies = int((result.projection_plot["cluster_label"] == -1).sum())
     col3.metric("Anomalies détectées", n_anomalies)
 
 # =============================================================================
@@ -105,28 +106,39 @@ with col1:
     tab_labels = ["Projection 3D", "Projection 2D"]
     if algorithm_key == "agglomerative":
         tab_labels.append("Dendrogramme")
+    tab_labels.append("Cercle de correlation")
     tab_labels.append("Descriptions")
 
     tabs = st.tabs(tab_labels, width="stretch", default="Projection 3D")
 
     if algorithm_key == "agglomerative":
-        tab_3d, tab_2d, tab_dendrogram, description = tabs
+        tab_3d, tab_2d, tab_dendrogram, tab_corr, description = tabs
 
         with tab_dendrogram:
             fig = dendrogram(result)
             st.plotly_chart(fig, width="stretch", height=500)
     else:
-        tab_3d, tab_2d, description = tabs
+        tab_3d, tab_2d, tab_corr, description = tabs
 
     with tab_3d:
         fig = scatter_3d_clusters(result)
+
+        st.write(llm_handler.comment_projection())
         st.plotly_chart(fig, width="stretch", height=500)
     with tab_2d:
         fig = scatter_2d_clusters(result)
         st.plotly_chart(fig, width="stretch", height=500)
+    with tab_corr:
+        fig = corr_circle(result)
+        st.plotly_chart(fig, width="stretch", height=500)
     with description:
-        #TODO: call llm here
-        st.write(result.statistics)
+        @st.fragment
+        def cluster_comment():
+            if "cluster_comments" in st.session_state:
+                for cluster, content in st.session_state.cluster_comments.items():
+                    st.subheader(f"{cluster} - {content['name']}")
+                    st.caption(content['description'])
+        cluster_comment()
 
 
 # =============================================================================
@@ -141,8 +153,8 @@ with col2:
         label_visibility="collapsed"
     )
 
-    result = data_manager.search_ipsrc(ipsrc)
-    st.dataframe(result, width="stretch", height=500)
+    search_result = data_manager.search_ipsrc(ipsrc)
+    st.dataframe(search_result, width="stretch", height=500)
 
 
 # =============================================================================
@@ -175,11 +187,6 @@ if algorithm_key in ["kmeans", "agglomerative"]:
                 analysing_kwarg = kwargs.copy()
                 analysing_kwarg["n_clusters"] = st.session_state.current_k + 1
 
-                result = run_clustering(df, algorithm_key, analysing_kwarg, reducer)
-
-                st.session_state.inertia_hist.append(result.inertia)
-                st.session_state.current_k += 1
-
                 # Scroll to bottom if first itteration
                 html(
                     """
@@ -190,6 +197,11 @@ if algorithm_key in ["kmeans", "agglomerative"]:
                     """,
                     height=0
                 )
+
+                result = run_clustering(df, algorithm_key, analysing_kwarg, reducer)
+
+                st.session_state.inertia_hist.append(result.inertia)
+                st.session_state.current_k += 1
 
                 # Rerun ONLY the fragment
                 st.rerun(scope="fragment")
@@ -207,3 +219,14 @@ if algorithm_key in ["kmeans", "agglomerative"]:
 
         # Call the fragment
         inertia_fragment()
+
+
+if "cluster_comments" not in st.session_state:
+    response = llm_handler.comment_cluster(result.cluster_statistics)
+    st.session_state.cluster_comments = response
+    st.rerun()
+
+if "projection_comments" not in st.session_state:
+    response = llm_handler.comment_projection(result.projection_statistics)
+    st.session_state.projection_comments = response
+    st.rerun()
