@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import streamlit as st
+from streamlit import html
 from dotenv import load_dotenv
 
 from services.data_manager import DataManager
@@ -26,11 +27,33 @@ if str(ROOT_DIR) not in sys.path:
 # =============================================================================
 # PAGE CONFIG
 # =============================================================================
+
 st.set_page_config(
     page_title="SecurityView",
+    page_icon="assets/logo.png",        # also uses the logo for the browser tab icon
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+with st.sidebar:
+    st.logo("assets/logo.png")
+
+html("""
+     <style>
+    .stLogo {
+        position: absolute;
+        height: 150px;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+     }
+
+     [data-testid="stSidebarHeader"] {
+        height: 150px;
+        margin-bottom: 0;
+     }
+     </style>
+     """)
 
 # =============================================================================
 # NAVIGATION
