@@ -29,6 +29,7 @@ ALGORITHM_LABELS: dict[str, str] = {
 
 def handle_model_change():
     st.session_state.inertia_hist = None
+    st.session_state.cluster_comments = None
 
 available = clustering_service.get_available_algorithms()
 algorithm_key = st.sidebar.selectbox(
@@ -42,12 +43,12 @@ kwargs: dict = {}
 
 if algorithm_key == "kmeans":
     kwargs["n_clusters"] = st.sidebar.slider(
-        "Nombre de clusters", min_value=2, max_value=20, value=3
+        "Nombre de clusters", min_value=2, max_value=20, value=3, on_change=handle_model_change
     )
 
 elif algorithm_key == "agglomerative":
     kwargs["n_clusters"] = st.sidebar.slider(
-        "Nombre de clusters", min_value=2, max_value=20, value=3
+        "Nombre de clusters", min_value=2, max_value=20, value=3, on_change=handle_model_change
     )
     kwargs["linkage"] = st.sidebar.selectbox(
         "Linkage", options=["ward", "complete", "average", "single"]
@@ -55,7 +56,7 @@ elif algorithm_key == "agglomerative":
 
 elif algorithm_key == "hdbscan":
     kwargs["min_cluster_size"] = st.sidebar.slider(
-        "min_cluster_size", min_value=2, max_value=50, value=5
+        "min_cluster_size", min_value=2, max_value=50, value=5, on_change=handle_model_change
     )
     kwargs["min_samples"] = st.sidebar.slider(
         "min_samples", min_value=1, max_value=50, value=3
@@ -109,7 +110,7 @@ with col1:
     tab_labels.append("Correlations")
     tab_labels.append("Descriptions")
 
-    tabs = st.tabs(tab_labels, width="stretch", default="Projection 3D")
+    tabs = st.tabs(tab_labels, width="stretch", default="Projection 2D")
 
     if algorithm_key == "agglomerative":
         tab_2d, tab_3d, tab_dendrogram, tab_corr, description = tabs
@@ -152,7 +153,7 @@ with col1:
         @st.fragment
         def cluster_comment():
             with st.container(height=500, border=False, gap=None):
-                if "cluster_comments" in st.session_state:
+                if "cluster_comments" in st.session_state and st.session_state.cluster_comments is not None:
                     st.subheader("Clusters")
                     for cluster, content in st.session_state.cluster_comments.items():
                         st.write(f"{cluster} - {content['name']}")
@@ -246,12 +247,12 @@ if algorithm_key in ["kmeans", "agglomerative"]:
         inertia_fragment()
 
 
-if "cluster_comments" not in st.session_state:
-    response = llm_handler.comment_cluster(result.cluster_statistics, result.corr_plot)
-    st.session_state.cluster_comments = response
-    st.rerun()
-
 if "projection_comments" not in st.session_state:
     response = llm_handler.comment_projection(result.corr_plot)
     st.session_state.projection_comments = response
+    st.rerun()
+
+if "cluster_comments" not in st.session_state or not st.session_state.cluster_comments:
+    response = llm_handler.comment_cluster(result.cluster_statistics, result.corr_plot)
+    st.session_state.cluster_comments = response
     st.rerun()
