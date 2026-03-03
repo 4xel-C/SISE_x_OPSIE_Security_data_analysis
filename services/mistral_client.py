@@ -91,7 +91,8 @@ class LLMHandler:
 
         Voici les variables avec l'impact le plus négatif / positif sur chacun des axes (ainsi que leur coeficient):
         """
-        for comp in corr_plot.columns:                # e.g. PC1, PC2, PC3
+        corr_plot = corr_plot.set_index('variable')
+        for comp in corr_plot.columns:              # e.g. PC1, PC2, PC3
             sorted_comp = corr_plot[comp].sort_values()
             negatif = [f"{var} ({coef})" for var, coef in sorted_comp.head(3).items()]
             positif = [f"{var} ({coef})" for var, coef in sorted_comp.tail(3).items()]
@@ -110,7 +111,6 @@ class LLMHandler:
             }
         }
         """
-
         response = self.client.chat.complete(
             model=model,
             response_format = {'type': 'json_object'},
