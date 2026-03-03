@@ -59,7 +59,6 @@ class ClusteringResult:
     algorithm: str
     n_clusters_found: int
     cluster_statistics: DataFrame
-    projection_statistics: DataFrame
     inertia: float
     linkage: Optional[np.ndarray]
 
@@ -134,7 +133,7 @@ class ClusteringService:
             n_clusters_found=n_clusters_found,
             inertia=score if mode == "cluster" else None, #type: ignore
             linkage=clusterer.linkage_matrix if algorithm == "Agglomerative" else None, #type: ignore
-            statistics=cluster_stats
+            cluster_statistics=cluster_stats,
         )
 
     def _extract_and_scale(self, df: DataFrame) -> tuple[NDArray, list]:

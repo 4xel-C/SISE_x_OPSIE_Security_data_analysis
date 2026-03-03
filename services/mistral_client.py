@@ -83,16 +83,16 @@ class LLMHandler:
         """
         prompt = """
         Nous avons projeté les données dans un espace en 3 dimension grace aux 3 premieres composantes latente d'une ACP.
-        Tu dois trouver un nom a chacun des axes pour mieux comprendre le sens de chacun des axes.
+        Tu dois trouver un nom a chacun des axes du graphique pour mieux comprendre le sens de chacun des axes.
 
         Voici les variables avec l'impact le plus négatif / positif sur chacun des axes (ainsi que leur coeficient):
         """
-        for axe in projections_statistics["comp"]:
-            projections_statistics.sort_values("coef")
-            positif = [f"{projections_statistics["variable"][i]} ({projections_statistics["coef"][i]})" for i in range(3)]
-            negatif = [f"{projections_statistics["variable"][-i]} ({projections_statistics["coef"][-i]})" for i in range(3)]
+        for comp in projections_statistics.columns:                # e.g. PC1, PC2, PC3
+            sorted_comp = projections_statistics[comp].sort_values()
+            negatif = [f"{var} ({coef})" for var, coef in sorted_comp.head(3).items()]
+            positif = [f"{var} ({coef})" for var, coef in sorted_comp.tail(3).items()]
             prompt += f"""
-            {axe}:
+            {comp}:
             - positif: {", ".join(positif)}
             - negatif {", ".join(negatif)}
             """

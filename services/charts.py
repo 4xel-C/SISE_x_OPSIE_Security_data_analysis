@@ -709,7 +709,7 @@ def corr_circle(result: ClusteringResult) -> go.Figure:
     return fig
 
 
-def scatter_3d_clusters(result: ClusteringResult) -> go.Figure:
+def scatter_3d_clusters(result: ClusteringResult, axes: list|None = None) -> go.Figure:
     """3D scatter plot of clustering or anomaly detection results.
 
     - mode=="cluster": discrete color per cluster label (label -1 shown as "Bruit")
@@ -769,12 +769,20 @@ def scatter_3d_clusters(result: ClusteringResult) -> go.Figure:
     fig.update_layout(
         autosize=True,
         height=None,
-        margin=dict(l=0, r=0, t=40, b=0)
+        margin=dict(l=0, r=0, t=40, b=0),
     )
+    if axes:
+        fig.update_layout(
+            scene=dict(
+                xaxis_title=axes[0],
+                yaxis_title=axes[1],
+                zaxis_title=axes[2],
+            )
+        )
     return fig
 
 
-def scatter_2d_clusters(result: ClusteringResult) -> go.Figure:
+def scatter_2d_clusters(result: ClusteringResult, axes: list|None = None) -> go.Figure:
     """2D scatter plot of clustering or anomaly detection results (pc1 vs pc2)."""
     df = result.projection_plot
 
@@ -822,6 +830,11 @@ def scatter_2d_clusters(result: ClusteringResult) -> go.Figure:
         height=None,
         margin=dict(l=0, r=0, t=40, b=0)
     )
+    if axes:
+        fig.update_layout(
+            xaxis_title=axes[0],
+            yaxis_title=axes[1]
+        )
     return fig
 
 def dendrogram(result: ClusteringResult):
