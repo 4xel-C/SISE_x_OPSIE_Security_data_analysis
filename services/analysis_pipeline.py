@@ -32,14 +32,20 @@ from services.mistral_client import llm_handler
 
 DENY_RATE_THRESHOLD = 0.8
 MAX_SUPERVISED_ROWS = 5000
-KMEANS_K_RANGE = [2, 3, 4, 5, 6]
-HDBSCAN_MCS_RANGE = [5, 10, 15, 20]
-IF_CONTAMINATION_RANGE = [0.03, 0.05, 0.1]
+
+# Outlier detection hyperparameter grids
+IF_CONTAMINATION_RANGE = [0.03, 0.05, 0.08, 0.1]
+LOF_N_NEIGHBORS_RANGE = [10, 20, 30, 50]
+LOF_CONTAMINATION_RANGE = [0.03, 0.05, 0.08, 0.1]
 
 SUPERVISED_ALGORITHMS = ["random_forest", "logistic_regression"]
-UNSUPERVISED_ALGORITHMS = ["kmeans", "agglomerative", "hdbscan", "isolation_forest"]
+UNSUPERVISED_ALGORITHMS = ["isolation_forest", "lof"]
 
-
+# Model file mapping
+_MODEL_FILES = {
+    "random_forest": "models/rf_classifier.pkl",
+    "logistic_regression": "models/logistic_regression.pkl",
+}
 # =============================================================================
 # DATACLASSES
 # =============================================================================
@@ -79,17 +85,19 @@ class Step2Result:
 
 @dataclass
 class Step3Result:
-    """Unsupervised model results."""
+    """Unsupervised outlier detection results."""
 
     algorithm: str
     reducer: str
     best_params: dict
-    best_score: float
-    score_name: str
-    optimization_curve: list[OptimizationPoint]
+    # IF: one curve (contamination → n_outliers)
+    # LOF: two curves — n_neighbors_curve (n_neighbors → ratio) + contamination_curve
+    contamination_curve: list[OptimizationPoint]  # contamination → n_outliers
+    n_neighbors_curve: list[OptimizationPoint]  # LOF only: n_neighbors → score ratio
     clustering_result: ClusteringResult
-    top_suspicious: DataFrame
-    n_suspicious: int
+    detected_ips: DataFrame
+    n_outliers: int
+    n_normal: int
     commentary: str | None
 
 
@@ -220,20 +228,14 @@ def suggest_unsupervised_algorithm(step1: Step1Result) -> str | None:
         f"- {step1.high_deny_count} IPs ({ratio * 100:.1f}%) ont un deny_rate ≥ {DENY_RATE_THRESHOLD * 100:.0f}%\n"
         f"Statistiques des features :\n{step1.feature_stats.round(2).to_string()}\n\n"
         f"Analyse précédente : {step1.commentary}\n\n"
-        f"Choisis UN algorithme non-supervisé parmi : KMeans, Agglomerative (CAH), HDBSCAN, Isolation Forest.\n"
+        f"Choisis UN algorithme de détection d'outliers parmi : Isolation Forest, Local Outlier Factor (LOF).\n"
+        f"Isolation Forest est global (basé sur l'isolation de points), LOF est local (basé sur la densité du voisinage).\n"
         f"Justifie ton choix en 2-3 phrases en te basant sur les caractéristiques du dataset "
-        f"(densité des clusters, présence de bruit, proportion d'anomalies attendue, forme des groupes).\n"
+        f"(distribution des anomalies, densité du trafic, proportion d'outliers attendue).\n"
         f"Termine ta réponse par : 'Algorithme recommandé : <nom>'.\n"
         f"Réponds directement en français, sans titre."
     )
     return llm_handler.query(prompt)
-
-
-# Model file mapping
-_MODEL_FILES = {
-    "random_forest": "models/rf_classifier.pkl",
-    "logistic_regression": "models/logistic_regression.pkl",
-}
 
 
 # =============================================================================
@@ -306,131 +308,116 @@ def tool_run_supervised_model(df: DataFrame, algorithm: str) -> Step2Result:
 
 
 # =============================================================================
+# HELPERS — hyperparameter selection for outlier detectors
+# =============================================================================
+def _best_lof_n_neighbors(
+    X_scaled, n_neighbors_range: list[int]
+) -> tuple[int, list[OptimizationPoint]]:
+    """Pick n_neighbors for LOF that maximises outlier/normal separation ratio.
+
+    Metric: ratio(top-5% LOF score / median LOF score). A higher ratio means
+    outliers stand out more clearly from the bulk of normal traffic.
+
+    Returns (best_n_neighbors, curve) so the curve can be displayed in the UI.
+    Falls back to the first value if all fits fail.
+    """
+    from sklearn.neighbors import LocalOutlierFactor
+
+    best_n = n_neighbors_range[0]
+    best_ratio = -1.0
+    curve: list[OptimizationPoint] = []
+    for n in n_neighbors_range:
+        ratio = 0.0
+        try:
+            lof = LocalOutlierFactor(n_neighbors=n, contamination=0.05)
+            lof.fit(X_scaled)
+            scores = -lof.negative_outlier_factor_  # higher = more anomalous
+            top5_mean = float(np.percentile(scores, 95))
+            median = float(np.median(scores))
+            ratio = top5_mean / median if median > 0 else 0.0
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_n = n
+        except Exception:
+            pass
+        curve.append(
+            OptimizationPoint(
+                "n_neighbors", float(n), ratio, "outlier_separation_ratio"
+            )
+        )
+    return best_n, curve
+
+
+# =============================================================================
 # STEP 3 — Unsupervised model
 # =============================================================================
-
-
 def tool_run_unsupervised_model(
     df: DataFrame, algorithm: str, reducer: str = "pca"
 ) -> Step3Result:
-    """Auto-optimize hyperparameters then run the chosen unsupervised algorithm."""
+    """Run outlier detection (Isolation Forest or LOF) on the dataset.
+
+    The optimization curve shows how many outliers are detected at each
+    contamination level — useful to spot the elbow and pick a threshold.
+    best_params is the configuration closest to 5% contamination (neutral default).
+
+    Suspects = IPs with cluster_label == -1 (flagged outliers), sorted by
+    anomaly_score descending.
+    """
     X_scaled = _extract_scaled(df)
+    n_total = len(_safe_reset(df))
 
-    curve: list[OptimizationPoint] = []
-    best_params: dict = {}
-    best_score = -999.0
-    score_name = "silhouette"
+    contamination_curve: list[OptimizationPoint] = []
+    n_neighbors_curve: list[OptimizationPoint] = []
+    best_params: dict = {"contamination": "auto"}
 
-    # --- Hyperparameter search ---
-    if algorithm in ("kmeans", "agglomerative"):
-        for k in KMEANS_K_RANGE:
+    if algorithm == "lof":
+        from sklearn.neighbors import LocalOutlierFactor
+
+        # Pass 1: n_neighbors → outlier separation ratio (curve tracée en UI)
+        best_n_neighbors, n_neighbors_curve = _best_lof_n_neighbors(
+            X_scaled, LOF_N_NEIGHBORS_RANGE
+        )
+
+        # Pass 2: contamination → n_outliers avec le meilleur n_neighbors (courbe tracée en UI)
+        for c in LOF_CONTAMINATION_RANGE:
             try:
-                if algorithm == "kmeans":
-                    from sklearn.cluster import KMeans
-
-                    labels = KMeans(
-                        n_clusters=k, random_state=42, n_init="auto"
-                    ).fit_predict(X_scaled)
-                else:
-                    from sklearn.cluster import AgglomerativeClustering
-
-                    labels = AgglomerativeClustering(n_clusters=k).fit_predict(X_scaled)
-                s = (
-                    silhouette_score(X_scaled, labels)
-                    if len(set(labels)) >= 2
-                    else -1.0
-                )
-            except Exception:
-                s = -1.0
-            curve.append(OptimizationPoint("n_clusters", float(k), s, "silhouette"))
-            if s > best_score:
-                best_score = s
-                best_params = {"n_clusters": k}
-
-    elif algorithm == "hdbscan":
-        import hdbscan as hdbscan_lib
-
-        for mcs in HDBSCAN_MCS_RANGE:
-            try:
-                labels = hdbscan_lib.HDBSCAN(
-                    min_cluster_size=mcs, min_samples=3
+                preds = LocalOutlierFactor(
+                    n_neighbors=best_n_neighbors, contamination=c
                 ).fit_predict(X_scaled)
-                mask = labels != -1
-                n_cl = len(set(labels[mask]))
-                s = (
-                    silhouette_score(X_scaled[mask], labels[mask])
-                    if mask.sum() >= 2 and n_cl >= 2
-                    else -1.0
-                )
+                n_out = int((preds == -1).sum())
             except Exception:
-                s = -1.0
-            curve.append(
-                OptimizationPoint("min_cluster_size", float(mcs), s, "silhouette")
+                n_out = 0
+            contamination_curve.append(
+                OptimizationPoint("contamination", c, float(n_out), "n_outliers")
             )
-            if s > best_score:
-                best_score = s
-                best_params = {"min_cluster_size": mcs}
 
-    elif algorithm == "isolation_forest":
-        score_name = "anomaly_fraction"
-        best_diff = float("inf")
-        target = 0.05
-        for c in IF_CONTAMINATION_RANGE:
-            try:
-                from sklearn.ensemble import IsolationForest
-
-                preds = IsolationForest(contamination=c, random_state=42).fit_predict(
-                    X_scaled
-                )
-                fraction = float((preds == -1).mean())
-            except Exception:
-                fraction = 0.0
-            curve.append(
-                OptimizationPoint("contamination", c, fraction, "anomaly_fraction")
-            )
-            diff = abs(fraction - target)
-            if diff < best_diff:
-                best_diff = diff
-                best_score = fraction
-                best_params = {"contamination": c}
+        best_params = {"n_neighbors": best_n_neighbors}
 
     # --- Final run via ClusteringService ---
     svc = ClusteringService()
     clusterer = svc.select_algorithm(algorithm, **best_params)
     result = svc.run(df, clusterer, reducer)  # type: ignore[arg-type]
 
-    # Select top suspicious IPs
-    if result.mode == "anomaly":
-        top_suspicious = result.projection_plot.nlargest(15, "anomaly_score")[
+    # Suspects = outliers (cluster_label == -1), sorted by anomaly_score desc
+    outlier_mask = result.projection_plot["cluster_label"] == -1
+    detected_ips = (
+        result.projection_plot[outlier_mask]
+        .sort_values("anomaly_score", ascending=False)[
             ["ipsrc", "anomaly_score", "deny_rate", "access_nbr", "requests_per_second"]
-        ].reset_index(drop=True)
-        n_suspicious = int((result.projection_plot["cluster_label"] == -1).sum())
-    else:
-        cluster_deny = result.projection_plot.groupby("cluster_label")["deny_rate"].mean()
-        suspect_cluster = int(cluster_deny.idxmax())
-        mask = result.projection_plot["cluster_label"] == suspect_cluster
-        top_suspicious = (
-            result.projection_plot[mask]
-            .nlargest(15, "deny_rate")[
-                [
-                    "ipsrc",
-                    "deny_rate",
-                    "access_nbr",
-                    "requests_per_second",
-                    "cluster_label",
-                ]
-            ]
-            .reset_index(drop=True)
-        )
-        n_suspicious = int(mask.sum())
+        ]
+        .reset_index(drop=True)
+    )
+    n_outliers = int(outlier_mask.sum())
+    n_normal = n_total - n_outliers
 
     prompt = (
-        f"Tu es un expert en machine learning appliqué à la cybersécurité.\n"
-        f"Algorithme non-supervisé utilisé : {algorithm}\n"
-        f"Meilleurs paramètres trouvés : {best_params}\n"
-        f"Score ({score_name}) : {best_score:.4f}\n"
-        f"IPs identifiées comme suspectes/anomalies : {n_suspicious}\n\n"
-        f"Explique en 3 à 4 phrases ce que ces résultats signifient d'un point de vue sécurité réseau. "
+        f"Tu es un expert en cybersécurité spécialisé en détection d'anomalies réseau.\n"
+        f"Algorithme utilisé : {algorithm} (détection d'outliers non-supervisée)\n"
+        f"Paramètres : {best_params}\n"
+        f"IPs détectées comme outliers : {n_outliers} sur {n_total} ({n_outliers / n_total * 100:.1f}%)\n"
+        f"Top 5 outliers par score : {detected_ips[['ipsrc', 'anomaly_score', 'deny_rate']].head(5).to_dict('records')}\n\n"
+        f"Explique en 3 à 4 phrases pourquoi ces IPs sont considérées comme anormales "
+        f"et ce qu'elles représentent d'un point de vue sécurité réseau. "
         f"Réponds directement en français, sans titre ni bullet points."
     )
     commentary = llm_handler.query(prompt)
@@ -439,12 +426,12 @@ def tool_run_unsupervised_model(
         algorithm=algorithm,
         reducer=reducer,
         best_params=best_params,
-        best_score=best_score,
-        score_name=score_name,
-        optimization_curve=curve,
+        contamination_curve=contamination_curve,
+        n_neighbors_curve=n_neighbors_curve,
         clustering_result=result,
-        top_suspicious=top_suspicious,
-        n_suspicious=n_suspicious,
+        detected_ips=detected_ips,
+        n_outliers=n_outliers,
+        n_normal=n_normal,
         commentary=commentary,
     )
 
@@ -462,8 +449,8 @@ def tool_consolidate(step2: Step2Result, step3: Step3Result) -> Step4Result:
         else set()
     )
     s3_ips = (
-        set(step3.top_suspicious["ipsrc"].tolist())
-        if not step3.top_suspicious.empty
+        set(step3.detected_ips["ipsrc"].tolist())
+        if not step3.detected_ips.empty
         else set()
     )
     overlap_ips = s2_ips & s3_ips
@@ -475,8 +462,8 @@ def tool_consolidate(step2: Step2Result, step3: Step3Result) -> Step4Result:
     ].copy()
     df2["source"] = "supervisé"
 
-    df3 = step3.top_suspicious[
-        ["ipsrc", "deny_rate", "access_nbr", "requests_per_second"]
+    df3 = step3.detected_ips[
+        ["ipsrc", "anomaly_score", "deny_rate", "access_nbr", "requests_per_second"]
     ].copy()
     df3["source"] = "non-supervisé"
 
@@ -504,9 +491,8 @@ def tool_consolidate(step2: Step2Result, step3: Step3Result) -> Step4Result:
     prompt = (
         f"Tu es un analyste SOC senior. Voici la synthèse d'une double analyse (supervisée + non-supervisée) "
         f"d'un trafic firewall.\n"
-        f"- Modèle supervisé ({step2.algorithm}) : {step2.n_suspicious} IPs suspectes, score F1={step2.best_score:.4f}\n"
-        f"- Modèle non-supervisé ({step3.algorithm}) : {step3.n_suspicious} IPs suspectes, "
-        f"score {step3.score_name}={step3.best_score:.4f}\n"
+        f"- Modèle supervisé ({step2.algorithm}) : {step2.n_suspicious} IPs suspectes\n"
+        f"- Modèle non-supervisé ({step3.algorithm}) : {step3.n_outliers} outliers détectés\n"
         f"- IPs flaggées par les DEUX modèles : {overlap_n} ({sorted(overlap_ips)[:5]}{'...' if overlap_n > 5 else ''})\n"
         f"- Top IPs par deny_rate : {combined[['ipsrc', 'deny_rate']].head(5).to_dict('records')}\n\n"
         f"Fournis une conclusion SOC de 4 à 6 phrases avec des recommandations d'actions concrètes "
@@ -518,7 +504,204 @@ def tool_consolidate(step2: Step2Result, step3: Step3Result) -> Step4Result:
     return Step4Result(
         combined_top=combined,
         supervised_n=step2.n_suspicious,
-        unsupervised_n=step3.n_suspicious,
+        unsupervised_n=step3.n_outliers,
         overlap_n=overlap_n,
         commentary=commentary,
     )
+
+
+# =============================================================================
+# RAPPORT — Génération Markdown + export PDF
+# =============================================================================
+
+
+def generate_report_markdown(
+    step1: Step1Result,
+    step2: Step2Result,
+    step3: Step3Result,
+    step4: Step4Result,
+) -> str | None:
+    """Ask Mistral to generate a full Markdown report summarising the 4-step pipeline."""
+    top5_overlap = (
+        step4.combined_top[step4.combined_top["flaggé par les deux"]][
+            ["ipsrc", "deny_rate"]
+        ]
+        .head(5)
+        .to_dict("records")
+    )
+    top10_all = (
+        step4.combined_top[["ipsrc", "deny_rate", "source"]].head(10).to_dict("records")
+    )
+
+    prompt = (
+        "Tu es un analyste SOC senior. Génère un rapport complet au format Markdown "
+        "résumant une analyse de logs firewall en 4 étapes. "
+        "Le rapport doit être structuré, professionnel et directement exploitable par un SOC.\n\n"
+        "## Données de l'analyse\n\n"
+        f"**Étape 1 — Analyse descriptive**\n"
+        f"- IPs analysées : {step1.n_ips}\n"
+        f"- Features : {step1.n_features}\n"
+        f"- IPs avec deny_rate ≥ 80% : {step1.high_deny_count} "
+        f"({step1.high_deny_count / max(step1.n_ips, 1) * 100:.1f}%)\n"
+        f"- Synthèse : {step1.commentary}\n\n"
+        f"**Étape 2 — Modèle supervisé ({step2.algorithm})**\n"
+        f"- IPs suspectes détectées : {step2.n_suspicious}\n"
+        f"- Synthèse : {step2.commentary}\n\n"
+        f"**Étape 3 — Modèle non-supervisé ({step3.algorithm})**\n"
+        f"- Paramètres optimisés : {step3.best_params}\n"
+        f"- Outliers détectés : {step3.n_outliers} / {step3.n_outliers + step3.n_normal}\n"
+        f"- Synthèse : {step3.commentary}\n\n"
+        f"**Étape 4 — Consolidation**\n"
+        f"- IPs flaggées par les deux modèles : {step4.overlap_n}\n"
+        f"- Top IPs flaggées par les deux : {top5_overlap}\n"
+        f"- Top 10 IPs consolidées : {top10_all}\n"
+        f"- Conclusion SOC : {step4.commentary}\n\n"
+        "## Format attendu\n\n"
+        "Le rapport doit contenir exactement ces sections (titres Markdown ## et ###) :\n"
+        "1. ## Résumé exécutif\n"
+        "2. ## Analyse descriptive du trafic\n"
+        "3. ## Résultats du modèle supervisé\n"
+        "4. ## Résultats du modèle non-supervisé\n"
+        "5. ## Consolidation et IPs prioritaires — inclure un tableau Markdown des top IPs\n"
+        "6. ## Recommandations SOC — liste d'actions concrètes (blocage, investigation, escalade)\n"
+        "7. ## Conclusion\n\n"
+        "Réponds uniquement avec le contenu Markdown du rapport, sans commentaire supplémentaire. "
+        "Rédige en français."
+    )
+    return llm_handler.query(prompt, model="mistral-small-latest")
+
+
+def markdown_to_pdf_bytes(md_text: str) -> bytes:
+    """Convert a Markdown string to PDF bytes using fpdf2 with Unicode TTF fonts.
+
+    Uses DejaVuSans (bundled in assets/fonts/) to support the full Unicode range,
+    including characters like em-dash, guillemets, etc. that Mistral commonly produces.
+    Renders headings (##, ###), bold (**text**), bullet lists, tables, and paragraphs.
+    Returns the raw PDF bytes ready for st.download_button.
+    """
+    import re
+    from pathlib import Path
+
+    from fpdf import FPDF
+
+    _FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+    _FONT_REGULAR = str(_FONTS_DIR / "DejaVuSans.ttf")
+    _FONT_BOLD = str(_FONTS_DIR / "DejaVuSans-Bold.ttf")
+    _FONT_MONO = str(_FONTS_DIR / "DejaVuSansMono.ttf")
+
+    class _PDF(FPDF):
+        def header(self):
+            self.set_font("DejaVu", "B", 10)
+            self.set_text_color(100, 100, 100)
+            self.cell(0, 8, "Rapport d'analyse SOC \u2014 Pipeline MCP", align="C")
+            self.ln(4)
+            self.set_draw_color(180, 180, 180)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.ln(4)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("DejaVu", "", 8)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 10, f"Page {self.page_no()}", align="C")
+
+    pdf = _PDF()
+    pdf.add_font("DejaVu", "", _FONT_REGULAR)
+    pdf.add_font("DejaVu", "B", _FONT_BOLD)
+    pdf.add_font("DejaVuMono", "", _FONT_MONO)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+    pdf.set_margins(15, 20, 15)
+
+    def _write_mixed(text: str, base_size: int = 10) -> None:
+        """Write a line that may contain **bold** segments."""
+        parts = re.split(r"(\*\*[^*]+\*\*)", text)
+        for part in parts:
+            if part.startswith("**") and part.endswith("**"):
+                pdf.set_font("DejaVu", "B", base_size)
+                pdf.write(6, part[2:-2])
+            else:
+                pdf.set_font("DejaVu", "", base_size)
+                pdf.write(6, part)
+
+    for raw_line in md_text.splitlines():
+        line = raw_line.rstrip()
+        pdf.set_x(pdf.l_margin)  # reset position before each line
+
+        # H1 (#)
+        if line.startswith("# ") and not line.startswith("## "):
+            pdf.ln(4)
+            pdf.set_font("DejaVu", "B", 16)
+            pdf.set_text_color(30, 30, 30)
+            pdf.multi_cell(0, 9, line[2:])
+            pdf.ln(2)
+
+        # H2 (##)
+        elif line.startswith("## ") and not line.startswith("### "):
+            pdf.ln(5)
+            pdf.set_font("DejaVu", "B", 13)
+            pdf.set_text_color(30, 80, 160)
+            pdf.multi_cell(0, 8, line[3:])
+            pdf.set_draw_color(30, 80, 160)
+            pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+            pdf.ln(3)
+            pdf.set_text_color(30, 30, 30)
+
+        # H3 (###)
+        elif line.startswith("### "):
+            pdf.ln(3)
+            pdf.set_font("DejaVu", "B", 11)
+            pdf.set_text_color(50, 50, 50)
+            pdf.multi_cell(0, 7, line[4:])
+            pdf.ln(1)
+            pdf.set_text_color(30, 30, 30)
+
+        # Horizontal rule
+        elif line.startswith("---") or line.startswith("==="):
+            pdf.set_draw_color(180, 180, 180)
+            pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+            pdf.ln(3)
+
+        # Markdown table rows — skip separator lines (---|---)
+        elif line.startswith("|"):
+            if re.match(r"^\|[-| :]+\|$", line):
+                continue
+            pdf.set_x(pdf.l_margin)
+            pdf.set_font("DejaVuMono", "", 7)
+            pdf.set_text_color(40, 40, 40)
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            row_text = " | ".join(cells)
+            w = pdf.w - pdf.l_margin - pdf.r_margin
+            pdf.multi_cell(w, 5, row_text)
+            pdf.set_text_color(30, 30, 30)
+
+        # Bullet list
+        elif line.startswith("- ") or line.startswith("* "):
+            pdf.set_font("DejaVu", "", 10)
+            pdf.set_text_color(30, 30, 30)
+            pdf.set_x(18)
+            pdf.write(6, "\u2022  ")
+            _write_mixed(line[2:])
+            pdf.ln(6)
+
+        # Numbered list
+        elif re.match(r"^\d+\.\s", line):
+            pdf.set_x(18)
+            pdf.set_font("DejaVu", "", 10)
+            pdf.set_text_color(30, 30, 30)
+            _write_mixed(line)
+            pdf.ln(6)
+
+        # Empty line
+        elif line == "":
+            pdf.ln(3)
+
+        # Normal paragraph
+        else:
+            pdf.set_font("DejaVu", "", 10)
+            pdf.set_text_color(30, 30, 30)
+            pdf.set_x(15)
+            _write_mixed(line)
+            pdf.ln(6)
+
+    return bytes(pdf.output())
