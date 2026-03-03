@@ -774,9 +774,9 @@ def scatter_3d_clusters(result: ClusteringResult, axes: list|None = None) -> go.
     if axes:
         fig.update_layout(
             scene=dict(
-                xaxis_title=axes[0],
-                yaxis_title=axes[1],
-                zaxis_title=axes[2],
+                xaxis_title=f"PC1 - {axes[0]}",
+                yaxis_title=f"PC2 - {axes[1]}",
+                zaxis_title=f"PC3 - {axes[2]}",
             )
         )
     return fig

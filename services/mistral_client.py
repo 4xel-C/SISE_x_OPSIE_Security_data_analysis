@@ -98,7 +98,7 @@ class LLMHandler:
             """
 
         system_prompt = """
-        Tu travail sur des données de cyber sécurité d'un firewall d'entreprise. Tu commentes les analyse de cette donnée:
+        Tu travail sur des données de cyber sécurité d'un firewall d'entreprise. Tu commentes en francais les analyse de cette donnée:
         {
             "PC#": {
                 "name": un nom court pour l'axe,

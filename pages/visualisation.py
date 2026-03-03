@@ -185,13 +185,13 @@ st.markdown(f"""
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.plotly_chart(proto_action_bar(df_raw), use_container_width=True)
+    st.plotly_chart(proto_action_bar(df_raw), width="stretch")
 with col2:
-    st.plotly_chart(allow_deny_pie(df_raw), use_container_width=True)
+    st.plotly_chart(allow_deny_pie(df_raw), width="stretch")
 with col3:
-    st.plotly_chart(port_distribution_bar(df_raw), use_container_width=True)
+    st.plotly_chart(port_distribution_bar(df_raw), width="stretch")
 
-st.plotly_chart(top_dst_ports_bar(df_raw), use_container_width=True)
+st.plotly_chart(top_dst_ports_bar(df_raw), width="stretch")
 
 # =============================================================================
 # LOG TABLE
@@ -465,7 +465,7 @@ for _i, _row in _top5_data.iterrows():
 
 _top5_chart_col, _top5_list_col = st.columns([3, 2])
 with _top5_chart_col:
-    st.plotly_chart(top5_ip_sources_bar(df_raw), use_container_width=True)
+    st.plotly_chart(top5_ip_sources_bar(df_raw), width="stretch")
 with _top5_list_col:
     components.html(f"""
     <html><head>
@@ -488,7 +488,7 @@ _port_counts.columns = ["port", "count"]
 
 _p10_chart_col, _p10_tags_col = st.columns([2, 1])
 with _p10_chart_col:
-    st.plotly_chart(top10_permitted_ports_bar(df_raw), use_container_width=True)
+    st.plotly_chart(top10_permitted_ports_bar(df_raw), width="stretch")
 
 _TAG_COLORS = [
     "#38bdf8", "#34d399", "#f87171", "#fbbf24", "#a78bfa",
@@ -623,7 +623,7 @@ def _render_geo_heatmap():
             city_heat[["city", "country", "flux"]]
             .sort_values("flux", ascending=False)
             .reset_index(drop=True),
-            use_container_width=True,
+            width="stretch",
             height=300,
         )
 
@@ -650,7 +650,7 @@ def _render_geo_heatmap():
                 ),
             ).add_to(m)
 
-        st_folium(m, use_container_width=True, height=460)
+        st_folium(m, width="stretch", height=460)
 
 
 _render_geo_heatmap()
@@ -659,7 +659,7 @@ _render_geo_heatmap()
 # DENY / PERMIT TIMELINE
 # =============================================================================
 st.header("Évolution temporelle des flux Deny / Permit")
-st.plotly_chart(deny_permit_timeline(df_raw), use_container_width=True)
+st.plotly_chart(deny_permit_timeline(df_raw), width="stretch")
 
 # =============================================================================
 # IP INDICATORS TABLE

@@ -151,10 +151,18 @@ with col1:
     with description:
         @st.fragment
         def cluster_comment():
-            if "cluster_comments" in st.session_state:
-                for cluster, content in st.session_state.cluster_comments.items():
-                    st.subheader(f"{cluster} - {content['name']}")
-                    st.caption(content['description'])
+            with st.container(height=500, border=False, gap=None):
+                if "cluster_comments" in st.session_state:
+                    st.subheader("Clusters")
+                    for cluster, content in st.session_state.cluster_comments.items():
+                        st.write(f"{cluster} - {content['name']}")
+                        st.caption(content['description'])
+                if "projection_comments" in st.session_state:
+                    st.subheader("Composantes")
+                    for comp, content in st.session_state.projection_comments.items():
+                        st.write(f"{comp} - {content['name']}")
+                        st.caption(content['description'])
+
         cluster_comment()
 
 
