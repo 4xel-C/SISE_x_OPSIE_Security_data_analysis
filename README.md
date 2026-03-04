@@ -1,12 +1,22 @@
 # SecurityView — Analyse de logs réseau pour la cybersécurité
 
-> Projet académique SISE × OPSIE 2026 — Détection d'intrusion et monitoring réseau par analyse de données firewall
+> Projet académique **SISE × OPSIE 2026** — Détection d'intrusion et monitoring réseau par analyse de données firewall
+
+![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.x-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
+![Scikit-learn](https://img.shields.io/badge/Scikit--learn-ML-F7931E?style=flat-square&logo=scikit-learn&logoColor=white)
+![Mistral AI](https://img.shields.io/badge/LLM-Mistral_AI-FF7000?style=flat-square&logo=mistral&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)
+![uv](https://img.shields.io/badge/Packaging-uv-DE5FE9?style=flat-square)
+![Challenge](https://img.shields.io/badge/Challenge-48h-red?style=flat-square&logo=lightning&logoColor=white)
 
 ---
 
-## Contexte et objectif
+## Contexte
 
-Les équipes de sécurité (SOC) sont confrontées à des volumes massifs de logs réseau qu'il est impossible d'analyser manuellement. **SecurityView** est une application d'analyse de données de cybersécurité conçue pour automatiser la détection d'IPs suspectes, identifier des patterns d'attaque et assister les analystes SOC dans leur travail de monitoring et de réponse aux incidents.
+**SecurityView** a été développé dans le cadre d'un **challenge de 48 heures** organisé conjointement par les masters **SISE** (Statistique et Informatique pour la Science des donnEes) et **OPSIE** (Optimisation et Pilotage des Systèmes d'Information en Entreprise). Le projet a été conçu, développé et livré sous contrainte de temps forte, avec l'objectif de produire une solution fonctionnelle et complète en deux jours.
+
+Les équipes de sécurité (SOC) sont confrontées à des volumes massifs de logs réseau qu'il est impossible d'analyser manuellement. **SecurityView** automatise la détection d'IPs suspectes, identifie des patterns d'attaque et assiste les analystes SOC dans leur travail de monitoring et de réponse aux incidents.
 
 L'application ingère des logs de firewall bruts, les enrichit par feature engineering, puis les soumet à plusieurs couches d'analyse :
 
