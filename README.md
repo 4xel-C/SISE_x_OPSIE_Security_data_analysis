@@ -12,6 +12,9 @@
 
 ---
 
+<img width="2178" height="1348" alt="image" src="https://github.com/user-attachments/assets/92009eb0-5ab9-4df3-b31a-cbe401ae3a3a" />
+
+
 ## Contexte
 
 **SecurityView** a été développé dans le cadre d'un **challenge de 48 heures** organisé conjointement par les masters **SISE** (Statistique et Informatique pour la Science des donnEes) et **OPSIE** (Optimisation et Pilotage des Systèmes d'Information en Entreprise). Le projet a été conçu, développé et livré sous contrainte de temps forte, avec l'objectif de produire une solution fonctionnelle et complète en deux jours.
@@ -73,6 +76,9 @@ Exploration des groupes comportementaux avec 4 algorithmes au choix :
 | **Isolation Forest** | Détection d'anomalies par isolation |
 
 La projection dimensionnelle (PCA ou UMAP) permet de visualiser les clusters en 2D/3D. Un commentaire LLM interprète automatiquement les groupes détectés.
+
+<img width="2142" height="1302" alt="image" src="https://github.com/user-attachments/assets/5795611b-b1cf-438d-840b-6604f1e4d673" />
+
 
 ### 4. Pipeline MCP — Analyse IA en 4 étapes
 
